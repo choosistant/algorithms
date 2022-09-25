@@ -1,7 +1,7 @@
 import pytorch_lightning as pl
 
-from src.algorithms.dummy import DummyModel
 from src.data import AmazonReviewEvaluationDataModule, AmazonReviewLabeledDataset
+from src.models.dummy import DummyModel
 
 
 def test_dummy_model():
