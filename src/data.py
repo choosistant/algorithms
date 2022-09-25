@@ -1,5 +1,9 @@
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import List
+
+import torch
 
 
 @dataclass
@@ -33,3 +37,24 @@ def parse_annotation_from_label_studio(exported_annotation_item) -> AnnotatedExa
                 )
             )
     return example
+
+
+class AmazonReviewLabeledDataset(torch.utils.data.Dataset):
+    def __init__(self, file_path: str):
+        self._file_path = Path(file_path)
+        if not self._file_path.exists():
+            raise ValueError(f"File {self._file_path} does not exist.")
+
+        self._data = self._load_data()
+
+    def _load_data(self):
+        with open(self._file_path, "r") as f:
+            data = json.load(f)
+            examples = [parse_annotation_from_label_studio(a) for a in data]
+        return examples
+
+    def __len__(self):
+        return len(self._data)
+
+    def __getitem__(self, idx):
+        return self._data[idx]
