@@ -9,6 +9,8 @@ import pytorch_lightning as pl
 import torch
 from transformers import AutoTokenizer
 
+# from src.models.qa import QuestionAnsweringModel
+
 
 @dataclass
 class AnnotatedTextSegment:
@@ -410,32 +412,9 @@ def test_data():
     dm.setup()
     dm.prepare_data()
 
-    question = "What is the best thing about this product?"
-    context = "I love the color and the fit of this product. It is very comfortable."
-
-    inputs = dm._tokenizer(
-        question,
-        context,
-        truncation=True,
-        padding=True,  # return_tensors="pt",
-    )
-    decoded = dm._tokenizer.decode(inputs["input_ids"])
-    print(dm._tokenizer.model_max_length)
-    # print(inputs)
-    print(f"Decoded: {decoded}")
-
-    # qa_pipeline = pipeline(
-    #     task="question-answering", model="deepset/roberta-base-squad2"
-    # )
-
-    # print(qa_pipeline.tokenizer)
-
-    # inputs = qa_pipeline.tokenizer.encode(
-    #     question, context
-    # )
-    # print(inputs)
-
-    pass
+    # trainer = pl.Trainer(max_epochs=1, gpus=0)
+    # model = QuestionAnsweringModel()
+    # predictions = trainer.test(model=model, dataloaders=dm)
 
 
 if __name__ == "__main__":
