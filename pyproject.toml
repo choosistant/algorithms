@@ -11,6 +11,8 @@ packages = [{include = "src"}]
 python = "^3.8"
 pytorch-lightning = "^1.7.7"
 transformers = "^4.22.1"
+nltk = "^3.7"
+numba = "^0.56.2"
 
 
 [tool.poetry.group.dev.dependencies]
