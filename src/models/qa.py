@@ -26,8 +26,13 @@ class QuestionAnsweringModel(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         output = self.forward(batch)
-        loss = self.loss(batch, output)
-        return {"test_loss": loss}
+        pred_start, pred_end = torch.argmax(output.start_logits),torch.argmax(output.end_logits)
+        answer_start,answer_end = batch['start_positions'],batch['end_positions']
+        print(f'pred_start: {pred_start}, pred_end: {pred_end}')
+        print(f'answer_start: {answer_start},answer_end: {answer_end}')
+        return output
+
+
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)

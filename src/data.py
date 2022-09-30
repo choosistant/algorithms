@@ -7,9 +7,11 @@ import nltk
 import numpy as np
 import pytorch_lightning as pl
 import torch
+from torch.utils.data import Dataset
+from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
-# from src.models.qa import QuestionAnsweringModel
+from src.models.qa import QuestionAnsweringModel
 
 
 @dataclass
@@ -72,27 +74,28 @@ class AmazonReviewLabeledDataset(torch.utils.data.Dataset):
         return self._data[idx]
 
 
-class AmazonReviewEvaluationDataModule(pl.LightningDataModule):
-    # Data modules decouple data-related logic from the model module.
-    # The aim is to make the model logic work with different datasets
-    # without chaning the model module.
-
-    def __init__(self, data_set: torch.utils.data.Dataset, batch_size: int = 32):
-        super().__init__()
-        self._data_set = data_set
-        self._batch_size = batch_size
-
-    def setup(self, stage=None):
-        pass
-
-    def test_dataloader(self):
-        return torch.utils.data.DataLoader(
-            dataset=self._data_set,
-            batch_size=self._batch_size,
-            shuffle=False,
-            collate_fn=lambda x: x,
-        )
-
+class AmazonReviewEvaluationDataModule(Dataset):
+    def __init__(self, data_set):
+        super(AmazonReviewEvaluationDataModule).__init__()
+        self._data_set = self._trans_to_tensor(data_set)
+    def __len__(self):
+        return len(self._data_set)
+    # def collate_fn(self,batch):
+    #     for i in batch:
+    #         for k,v in i.items():
+    #             print(v.shape)
+    #     exit(1)
+    def _trans_to_tensor(self,dataset):
+        dataset_tensor=[]
+        for vals in dataset:
+            val = {}
+            for k,v in vals.items():
+                v = torch.squeeze(torch.LongTensor(v))
+                val[k]=v
+            dataset_tensor.append(val)
+        return dataset_tensor
+    def __getitem__(self, idx):
+        return self._data_set[idx]
 
 class AmazonReviewQADataModule(pl.LightningDataModule):
     def __init__(
@@ -168,9 +171,10 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             stride=self._doc_stride,
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
+            pad_to_max_length = True
         )
-
         offset_mapping = encoded_question_and_context.pop("offset_mapping")
+        x = encoded_question_and_context.pop("overflow_to_sample_mapping")
 
         for i, offsets in enumerate(offset_mapping):
             seq_ids = np.array(encoded_question_and_context.sequence_ids(i))
@@ -179,11 +183,9 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             context_end_idx = context_token_indices[-1]
 
             input_ids = encoded_question_and_context["input_ids"][i]
-
             print(f"  Decoded input: {self._tokenizer.decode(input_ids)}")
 
             bos_index = input_ids.index(self._tokenizer.cls_token_id)
-
             context_boundary_start = offsets[context_start_idx][0]
             context_boundary_end = offsets[context_end_idx][1]
 
@@ -223,119 +225,59 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                     item["start_positions"].append(token_start_index)
                     item["end_positions"].append(token_end_index)
                 print("-" * 80)
+
         return encoded_qa_inputs
 
     def prepare_data(self) -> None:
         examples = self._parse_annoted_examples()
         print(f"Found {len(examples)} examples.")
 
-        for example in examples[30:32]:
+        preprocessed_dataset = []
+        for example in examples:
             chunks = self._split_text_into_chunks_by_sentence_pairings(
                 review_text=example.review_text
             )
-
             for chunk_start_idx, chunk_end_idx in chunks:
                 chunk = example.review_text[chunk_start_idx:chunk_end_idx]
+                print(chunk)
                 benefit_segments = self._extract_answers(
                     chunk_start_idx, chunk_end_idx, example.labels, "benefit"
                 )
+
+                # inputs = self._tokenizer(
+                #     self._benefit_question,
+                #     chunk,
+                #     max_length=self._doc_max_length,
+                #     truncation="only_second",
+                #     stride=self._doc_stride,
+                #     return_overflowing_tokens=True,
+                #     return_offsets_mapping=True,
+                #     padding="max_length",
+                # )
+                # sample_map = inputs.pop("overflow_to_sample_mapping")
+                # sample_map2 = inputs.pop("offset_mapping")
+
+                # preprocessed_dataset.append(inputs)
+                example_ids = []
 
                 encoded_inputs = self._encode_qa_input(
                     context=chunk,
                     question=self._benefit_question,
                     answer_ranges=benefit_segments,
                 )
-
+                for input in encoded_inputs:
+                    preprocessed_dataset.append(input)
                 print(f"Encoded {len(encoded_inputs)} chunks.")
+
+        return preprocessed_dataset
 
     def prepare_data2(self) -> None:
         examples = self._parse_annoted_examples()
         print(f"Found {len(examples)} examples.")
+        print(examples)
+        exit(1)
 
-        output = []
 
-        for example in examples[30:]:
-            chunks = self._split_text_into_chunks_by_sentence_pairings(
-                review_text=example.review_text
-            )
-
-            for chunk_start_idx, chunk_end_idx in chunks:
-
-                chunk = example.review_text[chunk_start_idx:chunk_end_idx]
-                benefit_segments = self._extract_answers(
-                    chunk, chunk_start_idx, chunk_end_idx, example.labels, "benefit"
-                )
-
-                encoded_question_and_context = self._tokenizer.encode_plus(
-                    self._benefit_question,
-                    chunk,
-                    truncation="only_second",
-                    max_length=self._doc_max_length,
-                    stride=self._doc_stride,
-                    return_overflowing_tokens=True,
-                    return_offsets_mapping=True,
-                )
-                offset_mapping = encoded_question_and_context.pop("offset_mapping")
-
-                print("\n")
-                print("=" * 80)
-                print(f"Chunk  : '{chunk}'")
-                print("=" * 80)
-
-                for i, offsets in enumerate(offset_mapping):
-                    seq_ids = np.array(encoded_question_and_context.sequence_ids(i))
-                    context_token_indices = np.where(seq_ids == 1)[0]
-                    context_start_idx = context_token_indices[0]
-                    context_end_idx = context_token_indices[-1]
-
-                    input_ids = encoded_question_and_context["input_ids"][i]
-
-                    print(f"  Decoded input: {self._tokenizer.decode(input_ids)}")
-
-                    # print(f"Input ids: {encoded_question_and_context['input_ids']}")
-                    bos_index = input_ids.index(self._tokenizer.cls_token_id)
-
-                    context_boundary_start = offsets[context_start_idx][0]
-                    context_boundary_end = offsets[context_end_idx][1]
-
-                    for answer_start_idx, answer_end_idx in benefit_segments:
-                        item = encoded_question_and_context.copy()
-                        output.append(item)
-                        item["start_positions"] = []
-                        item["end_positions"] = []
-
-                        if (
-                            context_boundary_start > answer_start_idx
-                            or context_boundary_end < answer_end_idx
-                        ):
-                            print("   No benefit answer in this chunk!")
-
-                            item["start_positions"].append(bos_index)
-                            item["end_positions"].append(bos_index)
-                        else:
-                            print(
-                                f"  Benefit: {chunk[answer_start_idx:answer_end_idx]}"
-                            )
-
-                            token_start_index = context_start_idx
-                            while offsets[token_start_index][0] < answer_start_idx:
-                                token_start_index += 1
-
-                            token_end_index = context_end_idx
-                            while offsets[token_end_index][1] > answer_end_idx:
-                                token_end_index -= 1
-                            token_end_index += 1
-
-                            labeled_answer = self._tokenizer.decode(
-                                input_ids[token_start_index:token_end_index]
-                            )
-                            print(f"  Decoded benefit: {labeled_answer}")
-
-                            item["start_positions"].append(token_start_index)
-                            item["end_positions"].append(token_end_index)
-                        print("-" * 80)
-
-            break
 
     def _split_text_into_chunks_by_sentence_pairings(
         self, review_text: str, n_sentences_to_pair: int = 3
@@ -407,15 +349,17 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
 
 def test_data():
     dm = AmazonReviewQADataModule(
-        file_path="data/project-1-at-2022-09-25-08-41-12f06b11.json"
+        file_path="data/sample.json"
     )
     dm.setup()
-    dm.prepare_data()
+    dataset = dm.prepare_data()
+    dm = AmazonReviewEvaluationDataModule(data_set=dataset)
+    dataloader_eval = DataLoader(dataset=dm, batch_size=1,shuffle=True,num_workers=0)
 
-    # trainer = pl.Trainer(max_epochs=1, gpus=0)
-    # model = QuestionAnsweringModel()
-    # predictions = trainer.test(model=model, dataloaders=dm)
+    trainer = pl.Trainer(max_epochs=1, gpus=0)
+    model = QuestionAnsweringModel()
 
+    predictions = trainer.test(model=model, dataloaders=dataloader_eval)
 
 if __name__ == "__main__":
     test_data()
