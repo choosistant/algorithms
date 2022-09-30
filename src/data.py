@@ -7,8 +7,7 @@ import nltk
 import numpy as np
 import pytorch_lightning as pl
 import torch
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer
 
 from src.models.qa import QuestionAnsweringModel
@@ -78,24 +77,28 @@ class AmazonReviewEvaluationDataModule(Dataset):
     def __init__(self, data_set):
         super(AmazonReviewEvaluationDataModule).__init__()
         self._data_set = self._trans_to_tensor(data_set)
+
     def __len__(self):
         return len(self._data_set)
+
     # def collate_fn(self,batch):
     #     for i in batch:
     #         for k,v in i.items():
     #             print(v.shape)
     #     exit(1)
-    def _trans_to_tensor(self,dataset):
-        dataset_tensor=[]
+    def _trans_to_tensor(self, dataset):
+        dataset_tensor = []
         for vals in dataset:
             val = {}
-            for k,v in vals.items():
+            for k, v in vals.items():
                 v = torch.squeeze(torch.LongTensor(v))
-                val[k]=v
+                val[k] = v
             dataset_tensor.append(val)
         return dataset_tensor
+
     def __getitem__(self, idx):
         return self._data_set[idx]
+
 
 class AmazonReviewQADataModule(pl.LightningDataModule):
     def __init__(
@@ -171,7 +174,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             stride=self._doc_stride,
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
-            pad_to_max_length = True
+            pad_to_max_length=True,
         )
         offset_mapping = encoded_question_and_context.pop("offset_mapping")
         x = encoded_question_and_context.pop("overflow_to_sample_mapping")
@@ -277,8 +280,6 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
         print(examples)
         exit(1)
 
-
-
     def _split_text_into_chunks_by_sentence_pairings(
         self, review_text: str, n_sentences_to_pair: int = 3
     ) -> List[Tuple[int, int]]:
@@ -348,18 +349,17 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
 
 
 def test_data():
-    dm = AmazonReviewQADataModule(
-        file_path="data/sample.json"
-    )
+    dm = AmazonReviewQADataModule(file_path="data/sample.json")
     dm.setup()
     dataset = dm.prepare_data()
     dm = AmazonReviewEvaluationDataModule(data_set=dataset)
-    dataloader_eval = DataLoader(dataset=dm, batch_size=1,shuffle=True,num_workers=0)
+    dataloader_eval = DataLoader(dataset=dm, batch_size=1, shuffle=True, num_workers=0)
 
     trainer = pl.Trainer(max_epochs=1, gpus=0)
     model = QuestionAnsweringModel()
 
     predictions = trainer.test(model=model, dataloaders=dataloader_eval)
+
 
 if __name__ == "__main__":
     test_data()
