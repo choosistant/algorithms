@@ -1,4 +1,5 @@
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -11,6 +12,8 @@ from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer
 
 from src.models.qa import QuestionAnsweringModel
+
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 
 @dataclass
