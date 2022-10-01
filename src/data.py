@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 import nltk
 import numpy as np
@@ -168,7 +168,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
 
     def _encode_qa_input(
         self, context: str, question: str, answer_ranges: List[Tuple[int, int]]
-    ) -> List[dict]:
+    ) -> List[Dict[str, torch.Tensor]]:
         encoded_qa_inputs = []
 
         encoded_question_and_context = self._tokenizer.encode_plus(
@@ -180,6 +180,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
             padding=True,
+            return_tensors="pt",
         )
         offset_mapping = encoded_question_and_context.pop("offset_mapping")
         # Remove `overflow_to_sample_mapping` key
@@ -196,15 +197,18 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             if self._verbose:
                 print(f"  Decoded input: {self._tokenizer.decode(input_ids)}")
 
-            bos_index = input_ids.index(self._tokenizer.cls_token_id)
+            # Assume that the [CLS] token is at the beginning of the input.
+            # Alternatively, we can find the index of the [CLS] token:
+            #   input_ids.index(self._tokenizer.cls_token_id)
+            bos_index = 0
 
             # If there is no answer, we set the start and end positions
             # to the [CLS] token.
             if len(answer_ranges) == 0:
                 item = encoded_question_and_context.copy()
                 encoded_qa_inputs.append(item)
-                item["start_positions"] = [bos_index]
-                item["end_positions"] = [bos_index]
+                item["start_positions"] = torch.tensor([bos_index])
+                item["end_positions"] = torch.tensor([bos_index])
                 continue
 
             context_boundary_start = offsets[context_start_idx][0]
@@ -213,8 +217,6 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             for answer_start_idx, answer_end_idx in answer_ranges:
                 item = encoded_question_and_context.copy()
                 encoded_qa_inputs.append(item)
-                item["start_positions"] = []
-                item["end_positions"] = []
 
                 if (
                     context_boundary_start > answer_start_idx
@@ -223,8 +225,8 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                     if self._verbose:
                         print("   No benefit answer in this chunk!")
 
-                    item["start_positions"].append(bos_index)
-                    item["end_positions"].append(bos_index)
+                    item["start_positions"] = torch.tensor([bos_index])
+                    item["end_positions"] = torch.tensor([bos_index])
                 else:
                     if self._verbose:
                         original_answer = context[answer_start_idx:answer_end_idx]
@@ -245,8 +247,8 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                         )
                         print(f"  Decoded answer: {decoded_answer}")
 
-                    item["start_positions"].append(token_start_index)
-                    item["end_positions"].append(token_end_index)
+                    item["start_positions"] = torch.tensor([token_start_index])
+                    item["end_positions"] = torch.tensor([token_end_index])
                 if self._verbose:
                     print("-" * 80)
 
