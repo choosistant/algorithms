@@ -131,8 +131,10 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
         # between any parts when splitting it into separate sub documents.
         self._doc_stride = doc_stride
 
-        self._benefit_question = "What are the benefits of this item, if any?"
-        self._drawback_question = "What are the drawbacks of this item, if any?"
+        self._question_map = {
+            "benefit": "What are the benefits of this item, if any?",
+            "drawback": "What are the drawbacks of this item, if any?",
+        }
 
     def setup(self, stage=None):
         nltk.download("punkt")
@@ -246,24 +248,34 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
 
         preprocessed_dataset = []
         for example in examples:
-            chunks = self._split_text_into_chunks_by_sentence_pairings(
-                review_text=example.review_text
-            )
-            for chunk_start_idx, chunk_end_idx in chunks:
-                chunk = example.review_text[chunk_start_idx:chunk_end_idx]
-                print(chunk)
-                benefit_segments = self._extract_answers(
-                    chunk_start_idx, chunk_end_idx, example.labels, "benefit"
-                )
+            # Chunks are the sub documents that we will feed to the model.
+            # It may be useful to split the document into sub documents.
+            # For now, we just use the entire document as a single chunk.
+            chunk_start_idx, chunk_end_idx = 0, len(example.review_text)
 
+            # Extract the chunk text from the orig review text.
+            chunk = example.review_text[chunk_start_idx:chunk_end_idx]
+            if self._verbose:
+                print("=" * 80)
+                print(f"Chunk: {chunk}")
+                print("=" * 80)
+
+            for label_val, question in self._question_map.items():
+                if self._verbose:
+                    print(f"Question: {question} (label: {label_val})")
+
+                answer_ranges = self._extract_answers(
+                    chunk_start_idx=chunk_start_idx,
+                    chunk_end_idx=chunk_end_idx,
+                    labels=example.labels,
+                    label_val=label_val,
+                )
                 encoded_inputs = self._encode_qa_input(
                     context=chunk,
-                    question=self._benefit_question,
-                    answer_ranges=benefit_segments,
+                    question=question,
+                    answer_ranges=answer_ranges,
                 )
-                for input in encoded_inputs:
-                    preprocessed_dataset.append(input)
-                print(f"Encoded {len(encoded_inputs)} chunks.")
+                preprocessed_dataset += encoded_inputs
 
         return preprocessed_dataset
 
