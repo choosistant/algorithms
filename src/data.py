@@ -248,22 +248,6 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                     chunk_start_idx, chunk_end_idx, example.labels, "benefit"
                 )
 
-                # inputs = self._tokenizer(
-                #     self._benefit_question,
-                #     chunk,
-                #     max_length=self._doc_max_length,
-                #     truncation="only_second",
-                #     stride=self._doc_stride,
-                #     return_overflowing_tokens=True,
-                #     return_offsets_mapping=True,
-                #     padding="max_length",
-                # )
-                # sample_map = inputs.pop("overflow_to_sample_mapping")
-                # sample_map2 = inputs.pop("offset_mapping")
-
-                # preprocessed_dataset.append(inputs)
-                # example_ids = []
-
                 encoded_inputs = self._encode_qa_input(
                     context=chunk,
                     question=self._benefit_question,
@@ -274,12 +258,6 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                 print(f"Encoded {len(encoded_inputs)} chunks.")
 
         return preprocessed_dataset
-
-    def prepare_data2(self) -> None:
-        examples = self._parse_annoted_examples()
-        print(f"Found {len(examples)} examples.")
-        print(examples)
-        exit(1)
 
     def _split_text_into_chunks_by_sentence_pairings(
         self, review_text: str, n_sentences_to_pair: int = 3
