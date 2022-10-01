@@ -197,6 +197,16 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                 print(f"  Decoded input: {self._tokenizer.decode(input_ids)}")
 
             bos_index = input_ids.index(self._tokenizer.cls_token_id)
+
+            # If there is no answer, we set the start and end positions
+            # to the [CLS] token.
+            if len(answer_ranges) == 0:
+                item = encoded_question_and_context.copy()
+                encoded_qa_inputs.append(item)
+                item["start_positions"] = [bos_index]
+                item["end_positions"] = [bos_index]
+                continue
+
             context_boundary_start = offsets[context_start_idx][0]
             context_boundary_end = offsets[context_end_idx][1]
 
@@ -244,7 +254,9 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
 
     def prepare_data(self) -> None:
         examples = self._parse_annoted_examples()
-        print(f"Found {len(examples)} examples.")
+
+        if self._verbose:
+            print(f"Found {len(examples)} examples.")
 
         preprocessed_dataset = []
         for example in examples:
@@ -275,6 +287,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                     question=question,
                     answer_ranges=answer_ranges,
                 )
+                assert len(encoded_inputs) >= 1
                 preprocessed_dataset += encoded_inputs
 
         return preprocessed_dataset
