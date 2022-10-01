@@ -177,7 +177,8 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             pad_to_max_length=True,
         )
         offset_mapping = encoded_question_and_context.pop("offset_mapping")
-        x = encoded_question_and_context.pop("overflow_to_sample_mapping")
+        # Remove `overflow_to_sample_mapping` key
+        encoded_question_and_context.pop("overflow_to_sample_mapping")
 
         for i, offsets in enumerate(offset_mapping):
             seq_ids = np.array(encoded_question_and_context.sequence_ids(i))
@@ -261,7 +262,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                 # sample_map2 = inputs.pop("offset_mapping")
 
                 # preprocessed_dataset.append(inputs)
-                example_ids = []
+                # example_ids = []
 
                 encoded_inputs = self._encode_qa_input(
                     context=chunk,
@@ -359,6 +360,7 @@ def test_data():
     model = QuestionAnsweringModel()
 
     predictions = trainer.test(model=model, dataloaders=dataloader_eval)
+    print(predictions)
 
 
 if __name__ == "__main__":
