@@ -107,11 +107,14 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
         qa_model_name: str = "deepset/roberta-base-squad2",
         batch_size: int = 32,
         doc_stride: int = 128,
+        verbose: bool = True,
     ) -> None:
         super().__init__()
         self._file_path = Path(file_path)
         if not self._file_path.exists():
             raise ValueError(f"Data file {self._file_path} does not exist.")
+
+        self._verbose = verbose
 
         self._batch_size = batch_size
 
@@ -187,7 +190,9 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             context_end_idx = context_token_indices[-1]
 
             input_ids = encoded_question_and_context["input_ids"][i]
-            print(f"  Decoded input: {self._tokenizer.decode(input_ids)}")
+
+            if self._verbose:
+                print(f"  Decoded input: {self._tokenizer.decode(input_ids)}")
 
             bos_index = input_ids.index(self._tokenizer.cls_token_id)
             context_boundary_start = offsets[context_start_idx][0]
@@ -203,14 +208,15 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                     context_boundary_start > answer_start_idx
                     or context_boundary_end < answer_end_idx
                 ):
-                    print("   No benefit answer in this chunk!")
+                    if self._verbose:
+                        print("   No benefit answer in this chunk!")
 
                     item["start_positions"].append(bos_index)
                     item["end_positions"].append(bos_index)
                 else:
-                    print(
-                        f"  Original answer: {context[answer_start_idx:answer_end_idx]}"
-                    )
+                    if self._verbose:
+                        original_answer = context[answer_start_idx:answer_end_idx]
+                        print(f"  Original answer: {original_answer}")
 
                     token_start_index = context_start_idx
                     while offsets[token_start_index][0] < answer_start_idx:
@@ -221,14 +227,16 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                         token_end_index -= 1
                     token_end_index += 1
 
-                    labeled_answer = self._tokenizer.decode(
-                        input_ids[token_start_index:token_end_index]
-                    )
-                    print(f"  Decoded answer: {labeled_answer}")
+                    if self._verbose:
+                        decoded_answer = self._tokenizer.decode(
+                            input_ids[token_start_index:token_end_index]
+                        )
+                        print(f"  Decoded answer: {decoded_answer}")
 
                     item["start_positions"].append(token_start_index)
                     item["end_positions"].append(token_end_index)
-                print("-" * 80)
+                if self._verbose:
+                    print("-" * 80)
 
         return encoded_qa_inputs
 
