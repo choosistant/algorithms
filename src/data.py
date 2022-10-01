@@ -224,7 +224,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             stride=self._doc_stride,
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
-            pad_to_max_length=True,
+            padding="max_length",
             return_tensors="pt",
         )
         offset_mapping = encoded_question_and_context.pop("offset_mapping")
@@ -380,7 +380,7 @@ def test_data():
     dm.setup()
     dm.prepare_data()
 
-    trainer = pl.Trainer(max_epochs=1, gpus=1)
+    trainer = pl.Trainer(max_epochs=1, accelerator="gpu", devices=1)
     model = QuestionAnsweringModel()
 
     predictions = trainer.test(model, dm)
