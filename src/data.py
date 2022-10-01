@@ -185,8 +185,11 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
         if self._verbose:
             print(f"Prepared {len(self._prepared_data)} examples.")
 
-    def test_dataloader(self) -> None:
+    def test_dataloader(self) -> DataLoader:
         return DataLoader(dataset=self._prepared_data, batch_size=self._batch_size)
+
+    def predict_dataloader(self) -> DataLoader:
+        return self.test_dataloader()
 
     def _extract_answers(
         self,
@@ -386,8 +389,10 @@ def test_data():
     trainer = pl.Trainer(max_epochs=1, accelerator="gpu", devices=1)
     model = QuestionAnsweringModel()
 
-    predictions = trainer.test(model, dm)
-    print(predictions)
+    print("Making predictions...")
+    predictions = trainer.predict(model, dm)
+    print(predictions[0].loss)
+    print(predictions[0].start_logits)
     pass
 
 

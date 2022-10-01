@@ -1,5 +1,6 @@
 import pytorch_lightning as pl
 import torch
+from datasets import load_metric
 from transformers import AutoModelForQuestionAnswering
 
 
@@ -10,6 +11,7 @@ class QuestionAnsweringModel(pl.LightningModule):
         super().__init__()
         self.model = AutoModelForQuestionAnswering.from_pretrained(qa_model_name)
         self.lr = lr
+        self._squad_metric = load_metric("squad")
 
     def forward(self, x):
         return self.model(**x)
@@ -25,14 +27,18 @@ class QuestionAnsweringModel(pl.LightningModule):
         return {"val_loss": loss}
 
     def test_step(self, batch, batch_idx):
-        output = self.forward(batch)
-        pred_start, pred_end = torch.argmax(output.start_logits), torch.argmax(
-            output.end_logits
-        )
-        answer_start, answer_end = batch["start_positions"], batch["end_positions"]
-        print(f"pred_start: {pred_start}, pred_end: {pred_end}")
-        print(f"answer_start: {answer_start},answer_end: {answer_end}")
-        return output
+        outputs = self.forward(batch)
+        pred_answer_start = torch.argmax(outputs.start_logits, dim=1)
+        pred_answer_end = torch.argmax(outputs.end_logits, dim=1)
+        if "start_positions" not in batch or "end_positions" not in batch:
+            raise ValueError(
+                "Examples in batch is not labelled. Cannot compute accuracy."
+            )
+        given_answer_start = torch.squeeze(batch["start_positions"])
+        given_answer_end = torch.squeeze(batch["end_positions"])
+        print(f"pred_start: {pred_answer_start}, pred_end: {pred_answer_end}")
+        print(f"answer_start: {given_answer_start}, answer_end: {given_answer_end}")
+        return outputs
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
