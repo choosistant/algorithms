@@ -174,7 +174,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             stride=self._doc_stride,
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
-            pad_to_max_length=True,
+            padding=True,
         )
         offset_mapping = encoded_question_and_context.pop("offset_mapping")
         # Remove `overflow_to_sample_mapping` key
