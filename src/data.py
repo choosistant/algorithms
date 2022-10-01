@@ -136,9 +136,54 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             "drawback": "What are the drawbacks of this item, if any?",
         }
 
+        self._prepared_data: List[Dict[str, torch.Tensor]] = []
+
     def setup(self, stage=None):
         nltk.download("punkt")
-        pass
+
+    def prepare_data(self) -> None:
+        examples = self._parse_annoted_examples()
+
+        if self._verbose:
+            print(f"Found {len(examples)} examples.")
+
+        self._prepared_data.clear()
+
+        for example in examples:
+            # Chunks are the sub documents that we will feed to the model.
+            # It may be useful to split the document into sub documents.
+            # For now, we just use the entire document as a single chunk.
+            chunk_start_idx, chunk_end_idx = 0, len(example.review_text)
+
+            # Extract the chunk text from the orig review text.
+            chunk = example.review_text[chunk_start_idx:chunk_end_idx]
+            if self._verbose:
+                print("=" * 80)
+                print(f"Chunk: {chunk}")
+                print("=" * 80)
+
+            for label_val, question in self._question_map.items():
+                if self._verbose:
+                    print(f"Question: {question} (label: {label_val})")
+
+                answer_ranges = self._extract_answers(
+                    chunk_start_idx=chunk_start_idx,
+                    chunk_end_idx=chunk_end_idx,
+                    labels=example.labels,
+                    label_val=label_val,
+                )
+                encoded_inputs = self._encode_qa_input(
+                    context=chunk,
+                    question=question,
+                    answer_ranges=answer_ranges,
+                )
+                assert len(encoded_inputs) >= 1
+                self._prepared_data += encoded_inputs
+        if self._verbose:
+            print(f"Prepared {len(self._prepared_data)} examples.")
+
+    def test_dataloader(self) -> None:
+        return DataLoader(dataset=self._prepared_data, batch_size=self._batch_size)
 
     def _extract_answers(
         self,
@@ -179,7 +224,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             stride=self._doc_stride,
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
-            padding=True,
+            pad_to_max_length=True,
             return_tensors="pt",
         )
         offset_mapping = encoded_question_and_context.pop("offset_mapping")
@@ -193,6 +238,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             context_end_idx = context_token_indices[-1]
 
             input_ids = encoded_question_and_context["input_ids"][i]
+            attention_masks = encoded_question_and_context["attention_mask"][i]
 
             if self._verbose:
                 print(f"  Decoded input: {self._tokenizer.decode(input_ids)}")
@@ -205,17 +251,24 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             # If there is no answer, we set the start and end positions
             # to the [CLS] token.
             if len(answer_ranges) == 0:
-                item = encoded_question_and_context.copy()
-                encoded_qa_inputs.append(item)
-                item["start_positions"] = torch.tensor([bos_index])
-                item["end_positions"] = torch.tensor([bos_index])
+                encoded_qa_inputs.append(
+                    {
+                        "input_ids": input_ids,
+                        "attention_mask": attention_masks,
+                        "start_positions": torch.tensor([bos_index]),
+                        "end_positions": torch.tensor([bos_index]),
+                    }
+                )
                 continue
 
             context_boundary_start = offsets[context_start_idx][0]
             context_boundary_end = offsets[context_end_idx][1]
 
             for answer_start_idx, answer_end_idx in answer_ranges:
-                item = encoded_question_and_context.copy()
+                item = {
+                    "input_ids": input_ids,
+                    "attention_mask": attention_masks,
+                }
                 encoded_qa_inputs.append(item)
 
                 if (
@@ -253,46 +306,6 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                     print("-" * 80)
 
         return encoded_qa_inputs
-
-    def prepare_data(self) -> None:
-        examples = self._parse_annoted_examples()
-
-        if self._verbose:
-            print(f"Found {len(examples)} examples.")
-
-        preprocessed_dataset = []
-        for example in examples:
-            # Chunks are the sub documents that we will feed to the model.
-            # It may be useful to split the document into sub documents.
-            # For now, we just use the entire document as a single chunk.
-            chunk_start_idx, chunk_end_idx = 0, len(example.review_text)
-
-            # Extract the chunk text from the orig review text.
-            chunk = example.review_text[chunk_start_idx:chunk_end_idx]
-            if self._verbose:
-                print("=" * 80)
-                print(f"Chunk: {chunk}")
-                print("=" * 80)
-
-            for label_val, question in self._question_map.items():
-                if self._verbose:
-                    print(f"Question: {question} (label: {label_val})")
-
-                answer_ranges = self._extract_answers(
-                    chunk_start_idx=chunk_start_idx,
-                    chunk_end_idx=chunk_end_idx,
-                    labels=example.labels,
-                    label_val=label_val,
-                )
-                encoded_inputs = self._encode_qa_input(
-                    context=chunk,
-                    question=question,
-                    answer_ranges=answer_ranges,
-                )
-                assert len(encoded_inputs) >= 1
-                preprocessed_dataset += encoded_inputs
-
-        return preprocessed_dataset
 
     def _split_text_into_chunks_by_sentence_pairings(
         self, review_text: str, n_sentences_to_pair: int = 3
@@ -363,17 +376,16 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
 
 
 def test_data():
-    dm = AmazonReviewQADataModule(file_path="data/sample.json")
+    dm = AmazonReviewQADataModule(file_path="data/sample.json", verbose=False)
     dm.setup()
-    dataset = dm.prepare_data()
-    dm = AmazonReviewEvaluationDataModule(data_set=dataset)
-    dataloader_eval = DataLoader(dataset=dm, batch_size=1, shuffle=True, num_workers=0)
+    dm.prepare_data()
 
-    trainer = pl.Trainer(max_epochs=1, gpus=0)
+    trainer = pl.Trainer(max_epochs=1, gpus=1)
     model = QuestionAnsweringModel()
 
-    predictions = trainer.test(model=model, dataloaders=dataloader_eval)
+    predictions = trainer.test(model, dm)
     print(predictions)
+    pass
 
 
 if __name__ == "__main__":
