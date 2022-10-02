@@ -1,5 +1,6 @@
 import json
 import os
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -435,6 +436,15 @@ def test_data():
     model = QuestionAnsweringModel()
 
     dataset: AmazonReviewQADataset = dm.get_data_set()
+
+    # An annotated example can split into several features in a given data set,
+    # so we map each example in the data set to its corresponding features.
+    example_to_feature_indices_map = defaultdict(list)
+    for i in range(len(dataset)):
+        raw_item = dataset.get_raw_item(i)
+        example: AnnotatedExample = raw_item["example"]
+        example_to_feature_indices_map[example.id].append(i)
+
     dataloader = DataLoader(dataset, batch_size=1, num_workers=0, shuffle=False)
     for i, batched_item in enumerate(dataloader):
         raw_item = dataset.get_raw_item(i)
@@ -449,6 +459,8 @@ def test_data():
         print(
             f"given: [{given_answer_start}, {given_answer_end}]  pred: [{pred_answer_start}, {pred_answer_end}]"
         )
+        if i > 4:
+            break
 
     # print("Making predictions...")
     # predictions = trainer.predict(model, dm)
