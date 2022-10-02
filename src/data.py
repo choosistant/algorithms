@@ -103,6 +103,25 @@ class AmazonReviewEvaluationDataModule(Dataset):
         return self._data_set[idx]
 
 
+class AmazonReviewQADataset(Dataset):
+    def __init__(self, items: List[Dict[str, torch.Tensor]]) -> None:
+        super().__init__()
+        self._items = items
+        self._default_output_keys = [
+            "input_ids",
+            "attention_mask",
+            "start_positions",
+            "end_positions",
+        ]
+
+    def __len__(self):
+        return len(self._items)
+
+    def __getitem__(self, idx):
+        item = self._items[idx]
+        return {k: item[k] for k in self._default_output_keys}
+
+
 class AmazonReviewQADataModule(pl.LightningDataModule):
     def __init__(
         self,
@@ -176,6 +195,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                     label_val=label_val,
                 )
                 encoded_inputs = self._encode_qa_input(
+                    example=example,
                     context=chunk,
                     question=question,
                     answer_ranges=answer_ranges,
@@ -186,7 +206,10 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             print(f"Prepared {len(self._prepared_data)} examples.")
 
     def test_dataloader(self) -> DataLoader:
-        return DataLoader(dataset=self._prepared_data, batch_size=self._batch_size)
+        return DataLoader(
+            dataset=AmazonReviewQADataset(self._prepared_data),
+            batch_size=self._batch_size,
+        )
 
     def predict_dataloader(self) -> DataLoader:
         return self.test_dataloader()
@@ -218,7 +241,11 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
         return answers
 
     def _encode_qa_input(
-        self, context: str, question: str, answer_ranges: List[Tuple[int, int]]
+        self,
+        example: AnnotatedExample,
+        context: str,
+        question: str,
+        answer_ranges: List[Tuple[int, int]],
     ) -> List[Dict[str, torch.Tensor]]:
         encoded_qa_inputs = []
 
@@ -259,6 +286,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             if len(answer_ranges) == 0:
                 encoded_qa_inputs.append(
                     {
+                        "example": example,
                         "input_ids": input_ids,
                         "attention_mask": attention_masks,
                         "start_positions": torch.tensor([bos_index]),
@@ -272,6 +300,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
 
             for answer_start_idx, answer_end_idx in answer_ranges:
                 item = {
+                    "example": example,
                     "input_ids": input_ids,
                     "attention_mask": attention_masks,
                 }
