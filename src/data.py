@@ -301,6 +301,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                         "example": example,
                         "input_ids": input_ids,
                         "attention_mask": attention_masks,
+                        "sequence_ids": seq_ids,
                         "start_positions": torch.tensor([bos_index]),
                         "end_positions": torch.tensor([bos_index]),
                     }
