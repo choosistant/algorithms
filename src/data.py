@@ -10,6 +10,7 @@ import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer
+from transformers.modeling_outputs import QuestionAnsweringModelOutput
 
 from src.models.qa import QuestionAnsweringModel
 
@@ -121,6 +122,9 @@ class AmazonReviewQADataset(Dataset):
         item = self._items[idx]
         return {k: item[k] for k in self._default_output_keys}
 
+    def get_raw_item(self, idx):
+        return self._items[idx]
+
 
 class AmazonReviewQADataModule(pl.LightningDataModule):
     def __init__(
@@ -207,12 +211,15 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
 
     def test_dataloader(self) -> DataLoader:
         return DataLoader(
-            dataset=AmazonReviewQADataset(self._prepared_data),
+            dataset=self._get_data_set(),
             batch_size=self._batch_size,
         )
 
     def predict_dataloader(self) -> DataLoader:
         return self.test_dataloader()
+
+    def get_data_set(self) -> AmazonReviewQADataset:
+        return AmazonReviewQADataset(self._prepared_data)
 
     def _extract_answers(
         self,
@@ -415,13 +422,29 @@ def test_data():
     dm.setup()
     dm.prepare_data()
 
-    trainer = pl.Trainer(max_epochs=1, accelerator="gpu", devices=1)
+    # trainer = pl.Trainer(max_epochs=1, accelerator="gpu", devices=1)
     model = QuestionAnsweringModel()
 
-    print("Making predictions...")
-    predictions = trainer.predict(model, dm)
-    print(predictions[0].loss)
-    print(predictions[0].start_logits)
+    dataset: AmazonReviewQADataset = dm.get_data_set()
+    dataloader = DataLoader(dataset, batch_size=1, num_workers=0, shuffle=False)
+    for i, batched_item in enumerate(dataloader):
+        raw_item = dataset.get_raw_item(i)
+        model_output: QuestionAnsweringModelOutput = model(batched_item)
+
+        pred_answer_start = torch.argmax(model_output.start_logits, dim=1)[0]
+        pred_answer_end = torch.argmax(model_output.end_logits, dim=1)[0]
+
+        given_answer_start = raw_item["start_positions"][0]
+        given_answer_end = raw_item["end_positions"][0]
+
+        print(
+            f"given: [{given_answer_start}, {given_answer_end}]  pred: [{pred_answer_start}, {pred_answer_end}]"
+        )
+
+    # print("Making predictions...")
+    # predictions = trainer.predict(model, dm)
+    # print(predictions[0].loss)
+    # print(predictions[0].start_logits)
     pass
 
 
