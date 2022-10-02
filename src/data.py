@@ -317,6 +317,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                     "example": example,
                     "input_ids": input_ids,
                     "attention_mask": attention_masks,
+                    "sequence_ids": seq_ids,
                 }
                 encoded_qa_inputs.append(item)
 
@@ -449,16 +450,61 @@ def test_data():
     for i, batched_item in enumerate(dataloader):
         raw_item = dataset.get_raw_item(i)
         model_output: QuestionAnsweringModelOutput = model(batched_item)
+        start_logits = model_output.start_logits
+        end_logits = model_output.end_logits
 
-        pred_answer_start = torch.argmax(model_output.start_logits, dim=1)[0]
-        pred_answer_end = torch.argmax(model_output.end_logits, dim=1)[0]
+        # Mask the indices that are not part of the context. Tokens within
+        # the context have sequence id 1. Tokens outside the context have
+        # sequence id 0 or None. The input to the model is:
+        #   ```
+        #   [CLS] question [SEP] context [SEP]
+        #   ```
+        mask_vector = [seq_id != 1 for seq_id in raw_item["sequence_ids"]]
 
+        # Keep the [CLS] token as we use it to indicate that
+        # the answer is not in the context.
+        mask_vector[0] = False
+        mask_vector = torch.tensor(mask_vector)[None]
+
+        # Mask the logits that are not part of the context because
+        # we only want to consider the logits for the context.
+        start_logits.masked_fill_(mask_vector, -float("inf"))
+        end_logits.masked_fill_(mask_vector, -float("inf"))
+
+        # Apply softmax to convert the logits to probabilities.
+        start_probabilities = torch.nn.functional.softmax(start_logits, dim=-1)[0]
+        end_probabilities = torch.nn.functional.softmax(end_logits, dim=-1)[0]
+
+        # Assuming the events “The answer starts at start_index” and
+        # “The answer ends at end_index” to be independent, the probability
+        # that the answer starts at start_index and ends at end_index is:
+        # start_probabilities[start_index] × end_probabilities[end_index]
+        # First, we need to compute all the possible products:
+        scores = start_probabilities[:, None] * end_probabilities[None, :]
+
+        # Then, we set the scores to 0 where start_index > end_index.
+        # `triu()` returns the upper triangular part of a 2D tensor.
+        scores = torch.triu(scores)
+
+        # Next, we need to find the start_index and end_index that maximize
+        # the probability of the answer. We use `torch.argmax()` to find the
+        # indices of the maximum values in the scores tensor.
+        max_index = scores.argmax().item()
+
+        # PyTorch will return a single index in the flattened tensor.
+        # We need to use the floor division // and modulus % operations
+        # to get the start_index and end_index.
+        pred_answer_start = max_index // scores.shape[1]
+        pred_answer_end = max_index % scores.shape[1]
+        pred_score = scores[pred_answer_start, pred_answer_end]
+
+        # Get the indices of the tokens that are part of the context.
         given_answer_start = raw_item["start_positions"][0]
         given_answer_end = raw_item["end_positions"][0]
 
-        print(
-            f"given: [{given_answer_start}, {given_answer_end}]  pred: [{pred_answer_start}, {pred_answer_end}]"
-        )
+        print(f"given: [{given_answer_start:3d}, {given_answer_end:3d}] ", end="")
+        print(f"pred: [{pred_answer_start:3d}, {pred_answer_end:3d}] ", end="")
+        print(f"pred score: {pred_score:0.4f}")
         if i > 4:
             break
 
