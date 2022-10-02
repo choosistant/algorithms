@@ -27,6 +27,8 @@ class AnnotatedTextSegment:
 
 @dataclass
 class AnnotatedExample:
+    id: int
+    item_id: str
     review_text: str
     labels: List[AnnotatedTextSegment] = field(default_factory=list)
 
@@ -38,8 +40,11 @@ class AnnotatedExample:
 
 
 def parse_annotation_from_label_studio(exported_annotation_item) -> dict:
-    review_text = exported_annotation_item["data"]["reviewText"]
-    example = AnnotatedExample(review_text=review_text)
+    example = AnnotatedExample(
+        id=exported_annotation_item["data"]["index"],
+        item_id=exported_annotation_item["data"]["asin"],
+        review_text=exported_annotation_item["data"]["reviewText"],
+    )
 
     for annotation_object in exported_annotation_item["annotations"]:
         labeled_segments = annotation_object["result"]
@@ -399,8 +404,11 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             return [self._parse_annotated_example(item) for item in items]
 
     def _parse_annotated_example(self, exported_annotation_item) -> AnnotatedExample:
-        review_text = exported_annotation_item["data"]["reviewText"]
-        example = AnnotatedExample(review_text=review_text)
+        example = AnnotatedExample(
+            id=exported_annotation_item["data"]["index"],
+            item_id=exported_annotation_item["data"]["asin"],
+            review_text=exported_annotation_item["data"]["reviewText"],
+        )
 
         for annotation_object in exported_annotation_item["annotations"]:
             labeled_segments = annotation_object["result"]
