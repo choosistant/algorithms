@@ -460,23 +460,26 @@ def test_data():
         start_logits = model_output.start_logits
         end_logits = model_output.end_logits
 
-        # Mask the indices that are not part of the context. Tokens within
-        # the context have sequence id 1. Tokens outside the context have
-        # sequence id 0 or None. The input to the model is:
+        # The input to the model is:
         #   ```
         #   [CLS] question [SEP] context [SEP]
         #   ```
-        mask_vector = [seq_id != 1 for seq_id in raw_item["sequence_ids"]]
+        # The context mask tells us which tokens are part of the context.
+        context_mask = batched_item["context_mask"]
 
-        # Keep the [CLS] token as we use it to indicate that
+        # Since we want to mask out non-context tokens, we
+        # invert the context mask.
+        non_context_mask = torch.logical_not(context_mask)
+
+        # Keep the [CLS] tokens as we use it to indicate that
         # the answer is not in the context.
-        mask_vector[0] = False
-        mask_vector = torch.tensor(mask_vector)[None]
+        for j in range(non_context_mask.shape[0]):
+            non_context_mask[j][0] = False
 
         # Mask the logits that are not part of the context because
         # we only want to consider the logits for the context.
-        start_logits.masked_fill_(mask_vector, -float("inf"))
-        end_logits.masked_fill_(mask_vector, -float("inf"))
+        start_logits.masked_fill_(non_context_mask, -float("inf"))
+        end_logits.masked_fill_(non_context_mask, -float("inf"))
 
         # Apply softmax to convert the logits to probabilities.
         start_probabilities = torch.nn.functional.softmax(start_logits, dim=-1)[0]
