@@ -114,7 +114,7 @@ class AmazonReviewQADataset(Dataset):
     def __init__(self, items: List[Dict[str, torch.Tensor]]) -> None:
         super().__init__()
         self._items = items
-        self._default_output_keys = [
+        self._model_input_keys = [
             "input_ids",
             "attention_mask",
             "start_positions",
@@ -125,11 +125,13 @@ class AmazonReviewQADataset(Dataset):
         return len(self._items)
 
     def __getitem__(self, idx):
-        item = self._items[idx]
-        return {k: item[k] for k in self._default_output_keys}
+        return self.prepare_batch_for_model(self._items[idx])
 
     def get_raw_item(self, idx):
         return self._items[idx]
+
+    def prepare_batch_for_model(self, batch):
+        return {k: batch[k] for k in self._model_input_keys}
 
 
 class AmazonReviewQADataModule(pl.LightningDataModule):
