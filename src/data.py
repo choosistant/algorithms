@@ -125,7 +125,8 @@ class AmazonReviewQADataset(Dataset):
         return len(self._items)
 
     def __getitem__(self, idx):
-        return self.prepare_batch_for_model(self._items[idx])
+        item = self.get_raw_item(idx)
+        return {k: item[k] for k in item.keys() if k not in ["sequence_ids", "example"]}
 
     def get_raw_item(self, idx):
         return self._items[idx]
@@ -454,7 +455,8 @@ def test_data():
     dataloader = DataLoader(dataset, batch_size=1, num_workers=0, shuffle=False)
     for i, batched_item in enumerate(dataloader):
         raw_item = dataset.get_raw_item(i)
-        model_output: QuestionAnsweringModelOutput = model(batched_item)
+        batch_for_model = dataset.prepare_batch_for_model(batched_item)
+        model_output: QuestionAnsweringModelOutput = model(batch_for_model)
         start_logits = model_output.start_logits
         end_logits = model_output.end_logits
 
