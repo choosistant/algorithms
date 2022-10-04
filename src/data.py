@@ -281,7 +281,8 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
 
         for i, offsets in enumerate(offset_mapping):
             seq_ids = np.array(encoded_question_and_context.sequence_ids(i))
-            context_token_indices = np.where(seq_ids == 1)[0]
+            context_mask = seq_ids == 1
+            context_token_indices = np.where(context_mask)[0]
             context_start_idx = context_token_indices[0]
             context_end_idx = context_token_indices[-1]
 
@@ -305,6 +306,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                         "input_ids": input_ids,
                         "attention_mask": attention_masks,
                         "sequence_ids": seq_ids,
+                        "context_mask": context_mask,
                         "start_positions": torch.tensor([bos_index]),
                         "end_positions": torch.tensor([bos_index]),
                     }
@@ -320,6 +322,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                     "input_ids": input_ids,
                     "attention_mask": attention_masks,
                     "sequence_ids": seq_ids,
+                    "context_mask": context_mask,
                 }
                 encoded_qa_inputs.append(item)
 
