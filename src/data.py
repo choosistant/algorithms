@@ -126,7 +126,7 @@ class AmazonReviewQADataset(Dataset):
 
     def __getitem__(self, idx):
         item = self.get_raw_item(idx)
-        return {k: item[k] for k in item.keys() if k not in ["sequence_ids", "example"]}
+        return item
 
     def get_raw_item(self, idx):
         return self._items[idx]
@@ -303,10 +303,9 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             if len(answer_ranges) == 0:
                 encoded_qa_inputs.append(
                     {
-                        "example": example,
+                        "example_ids": torch.tensor([example.id]),
                         "input_ids": input_ids,
                         "attention_mask": attention_masks,
-                        "sequence_ids": seq_ids,
                         "context_mask": context_mask,
                         "start_positions": torch.tensor([bos_index]),
                         "end_positions": torch.tensor([bos_index]),
@@ -319,10 +318,9 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
 
             for answer_start_idx, answer_end_idx in answer_ranges:
                 item = {
-                    "example": example,
+                    "example_ids": torch.tensor([example.id]),
                     "input_ids": input_ids,
                     "attention_mask": attention_masks,
-                    "sequence_ids": seq_ids,
                     "context_mask": context_mask,
                 }
                 encoded_qa_inputs.append(item)
@@ -449,8 +447,8 @@ def test_data():
     example_to_feature_indices_map = defaultdict(list)
     for i in range(len(dataset)):
         raw_item = dataset.get_raw_item(i)
-        example: AnnotatedExample = raw_item["example"]
-        example_to_feature_indices_map[example.id].append(i)
+        example_id = raw_item["example_ids"]
+        example_to_feature_indices_map[example_id].append(i)
 
     dataloader = DataLoader(dataset, batch_size=1, num_workers=0, shuffle=False)
     for i, batched_item in enumerate(dataloader):
