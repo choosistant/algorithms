@@ -11,7 +11,6 @@ import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer
-from transformers.modeling_outputs import QuestionAnsweringModelOutput
 
 from src.models.qa import QuestionAnsweringModel
 
@@ -354,10 +353,27 @@ def test_data():
     dm.setup()
     dm.prepare_data()
 
-    # trainer = pl.Trainer(max_epochs=1, accelerator="gpu", devices=1)
     model = QuestionAnsweringModel()
-
     dataset: AmazonReviewQADataset = dm.get_data_set()
+
+    print("Making predictions...")
+    trainer = pl.Trainer(max_epochs=1, accelerator="gpu", devices=1)
+    predictions = trainer.predict(model, dm)
+
+    for i, batch_predictions in enumerate(predictions):
+        example_ids = batch_predictions["example_ids"]
+
+        for j in range(len(example_ids)):
+            example_id = example_ids[j]
+            given_answer_start = batch_predictions["given_answer_start"][j]
+            given_answer_end = batch_predictions["given_answer_end"][j]
+            pred_answer_start = batch_predictions["pred_answer_start"][j]
+            pred_answer_end = batch_predictions["pred_answer_end"][j]
+            pred_score = batch_predictions["pred_score"][j]
+            print(f"Example ID: {example_id:10d}  ", end="")
+            print(f"given: [{given_answer_start:3d}, {given_answer_end:3d}] ", end="")
+            print(f"pred: [{pred_answer_start:3d}, {pred_answer_end:3d}] ", end="")
+            print(f"pred score: {pred_score:0.4f}")
 
     # An annotated example can split into several features in a given data set,
     # so we map each example in the data set to its corresponding features.
@@ -367,74 +383,6 @@ def test_data():
         example_id = raw_item["example_ids"]
         example_to_feature_indices_map[example_id].append(i)
 
-    dataloader = DataLoader(dataset, batch_size=1, num_workers=0, shuffle=False)
-    for i, batched_item in enumerate(dataloader):
-        model_output: QuestionAnsweringModelOutput = model(batched_item)
-        start_logits = model_output.start_logits
-        end_logits = model_output.end_logits
-
-        # The input to the model is:
-        #   ```
-        #   [CLS] question [SEP] context [SEP]
-        #   ```
-        # The context mask tells us which tokens are part of the context.
-        context_mask = batched_item["context_mask"]
-
-        # Since we want to mask out non-context tokens, we
-        # invert the context mask.
-        non_context_mask = torch.logical_not(context_mask)
-
-        # Keep the [CLS] tokens as we use it to indicate that
-        # the answer is not in the context.
-        for j in range(non_context_mask.shape[0]):
-            non_context_mask[j][0] = False
-
-        # Mask the logits that are not part of the context because
-        # we only want to consider the logits for the context.
-        start_logits.masked_fill_(non_context_mask, -float("inf"))
-        end_logits.masked_fill_(non_context_mask, -float("inf"))
-
-        # Apply softmax to convert the logits to probabilities.
-        start_probabilities = torch.nn.functional.softmax(start_logits, dim=-1)[0]
-        end_probabilities = torch.nn.functional.softmax(end_logits, dim=-1)[0]
-
-        # Assuming the events “The answer starts at start_index” and
-        # “The answer ends at end_index” to be independent, the probability
-        # that the answer starts at start_index and ends at end_index is:
-        # start_probabilities[start_index] × end_probabilities[end_index]
-        # First, we need to compute all the possible products:
-        scores = start_probabilities[:, None] * end_probabilities[None, :]
-
-        # Then, we set the scores to 0 where start_index > end_index.
-        # `triu()` returns the upper triangular part of a 2D tensor.
-        scores = torch.triu(scores)
-
-        # Next, we need to find the start_index and end_index that maximize
-        # the probability of the answer. We use `torch.argmax()` to find the
-        # indices of the maximum values in the scores tensor.
-        max_index = scores.argmax().item()
-
-        # PyTorch will return a single index in the flattened tensor.
-        # We need to use the floor division // and modulus % operations
-        # to get the start_index and end_index.
-        pred_answer_start = max_index // scores.shape[1]
-        pred_answer_end = max_index % scores.shape[1]
-        pred_score = scores[pred_answer_start, pred_answer_end]
-
-        # Get the indices of the tokens that are part of the context.
-        given_answer_start = torch.squeeze(batched_item["start_positions"])
-        given_answer_end = torch.squeeze(batched_item["end_positions"])
-
-        print(f"given: [{given_answer_start:3d}, {given_answer_end:3d}] ", end="")
-        print(f"pred: [{pred_answer_start:3d}, {pred_answer_end:3d}] ", end="")
-        print(f"pred score: {pred_score:0.4f}")
-        if i > 4:
-            break
-
-    # print("Making predictions...")
-    # predictions = trainer.predict(model, dm)
-    # print(predictions[0].loss)
-    # print(predictions[0].start_logits)
     pass
 
 
