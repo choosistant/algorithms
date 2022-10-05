@@ -361,16 +361,19 @@ def test_data():
     predictions = trainer.predict(model, dm)
 
     for i, batch_predictions in enumerate(predictions):
-        example_ids = batch_predictions["example_ids"]
+        example_ids = batch_predictions["example_id"]
 
         for j in range(len(example_ids)):
             example_id = example_ids[j]
+            input_ids = batch_predictions["input_ids"][j]
+
             given_answer_start = batch_predictions["given_answer_start"][j]
             given_answer_end = batch_predictions["given_answer_end"][j]
             pred_answer_start = batch_predictions["pred_answer_start"][j]
             pred_answer_end = batch_predictions["pred_answer_end"][j]
             pred_score = batch_predictions["pred_score"][j]
             print(f"Example ID: {example_id:10d}  ", end="")
+            print(f"sum(input_ids): {torch.sum(input_ids):10d}  ", end="")
             print(f"given: [{given_answer_start:3d}, {given_answer_end:3d}] ", end="")
             print(f"pred: [{pred_answer_start:3d}, {pred_answer_end:3d}] ", end="")
             print(f"pred score: {pred_score:0.4f}")

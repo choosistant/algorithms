@@ -58,7 +58,8 @@ class QuestionAnsweringModel(pl.LightningModule):
         model_output: QuestionAnsweringModelOutput,
     ) -> dict:
         predict_results = {
-            "example_ids": [],
+            "example_id": [],
+            "input_ids": [],
             "given_answer_start": [],
             "given_answer_end": [],
             "pred_answer_start": [],
@@ -122,7 +123,8 @@ class QuestionAnsweringModel(pl.LightningModule):
             given_answer_end = model_input["end_positions"][j].item()
 
             # Append the results to the list.
-            predict_results["example_ids"].append(model_input["example_ids"][j].item())
+            predict_results["example_id"].append(model_input["example_ids"][j].item())
+            predict_results["input_ids"].append(model_input["input_ids"][j])
             predict_results["given_answer_start"].append(given_answer_start)
             predict_results["given_answer_end"].append(given_answer_end)
             predict_results["pred_answer_start"].append(pred_answer_start)
