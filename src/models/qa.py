@@ -14,16 +14,16 @@ class QuestionAnsweringModel(pl.LightningModule):
         self._squad_metric = load_metric("squad")
 
     def forward(self, x):
-        return self.model(**x)
+        return self.model(input_ids=x["input_ids"], attention_mask=x["attention_mask"])
 
     def training_step(self, batch, batch_idx):
-        outputs = self(batch)
-        loss = outputs[0]
+        model_output = self.forward(batch)
+        loss = model_output.loss
         return {"train_loss": loss}
 
     def validation_step(self, batch, batch_idx):
-        output = self.forward(batch)
-        loss = self.loss(batch, output)
+        model_output = self.forward(batch)
+        loss = model_output.loss
         return {"val_loss": loss}
 
     def test_step(self, batch, batch_idx):
