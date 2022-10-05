@@ -40,99 +40,16 @@ class AnnotatedExample:
         }
 
 
-def parse_annotation_from_label_studio(exported_annotation_item) -> dict:
-    example = AnnotatedExample(
-        id=exported_annotation_item["data"]["index"],
-        item_id=exported_annotation_item["data"]["asin"],
-        review_text=exported_annotation_item["data"]["reviewText"],
-    )
-
-    for annotation_object in exported_annotation_item["annotations"]:
-        labeled_segments = annotation_object["result"]
-        for labeled_segment in labeled_segments:
-            vals = labeled_segment["value"]
-            example.labels.append(
-                AnnotatedTextSegment(
-                    label=vals["labels"][0],
-                    segment_start=vals["start"],
-                    segment_end=vals["end"],
-                    segment=vals["text"],
-                )
-            )
-    return example.to_dict()
-
-
-class AmazonReviewLabeledDataset(torch.utils.data.Dataset):
-    def __init__(self, file_path: str):
-        self._file_path = Path(file_path)
-        if not self._file_path.exists():
-            raise ValueError(f"File {self._file_path} does not exist.")
-
-        self._data = self._load_data()
-
-    def _load_data(self):
-        with open(self._file_path, "r") as f:
-            data = json.load(f)
-            examples = [parse_annotation_from_label_studio(a) for a in data]
-        return examples
-
-    def __len__(self):
-        return len(self._data)
-
-    def __getitem__(self, idx):
-        return self._data[idx]
-
-
-class AmazonReviewEvaluationDataModule(Dataset):
-    def __init__(self, data_set):
-        super(AmazonReviewEvaluationDataModule).__init__()
-        self._data_set = self._trans_to_tensor(data_set)
-
-    def __len__(self):
-        return len(self._data_set)
-
-    # def collate_fn(self,batch):
-    #     for i in batch:
-    #         for k,v in i.items():
-    #             print(v.shape)
-    #     exit(1)
-    def _trans_to_tensor(self, dataset):
-        dataset_tensor = []
-        for vals in dataset:
-            val = {}
-            for k, v in vals.items():
-                v = torch.squeeze(torch.LongTensor(v))
-                val[k] = v
-            dataset_tensor.append(val)
-        return dataset_tensor
-
-    def __getitem__(self, idx):
-        return self._data_set[idx]
-
-
 class AmazonReviewQADataset(Dataset):
     def __init__(self, items: List[Dict[str, torch.Tensor]]) -> None:
         super().__init__()
         self._items = items
-        self._model_input_keys = [
-            "input_ids",
-            "attention_mask",
-            "start_positions",
-            "end_positions",
-        ]
 
     def __len__(self):
         return len(self._items)
 
     def __getitem__(self, idx):
-        item = self.get_raw_item(idx)
-        return item
-
-    def get_raw_item(self, idx):
         return self._items[idx]
-
-    def prepare_batch_for_model(self, batch):
-        return {k: batch[k] for k in self._model_input_keys}
 
 
 class AmazonReviewQADataModule(pl.LightningDataModule):
@@ -446,15 +363,13 @@ def test_data():
     # so we map each example in the data set to its corresponding features.
     example_to_feature_indices_map = defaultdict(list)
     for i in range(len(dataset)):
-        raw_item = dataset.get_raw_item(i)
+        raw_item = dataset[i]
         example_id = raw_item["example_ids"]
         example_to_feature_indices_map[example_id].append(i)
 
     dataloader = DataLoader(dataset, batch_size=1, num_workers=0, shuffle=False)
     for i, batched_item in enumerate(dataloader):
-        raw_item = dataset.get_raw_item(i)
-        batch_for_model = dataset.prepare_batch_for_model(batched_item)
-        model_output: QuestionAnsweringModelOutput = model(batch_for_model)
+        model_output: QuestionAnsweringModelOutput = model(batched_item)
         start_logits = model_output.start_logits
         end_logits = model_output.end_logits
 
@@ -507,8 +422,8 @@ def test_data():
         pred_score = scores[pred_answer_start, pred_answer_end]
 
         # Get the indices of the tokens that are part of the context.
-        given_answer_start = raw_item["start_positions"][0]
-        given_answer_end = raw_item["end_positions"][0]
+        given_answer_start = torch.squeeze(batched_item["start_positions"])
+        given_answer_end = torch.squeeze(batched_item["end_positions"])
 
         print(f"given: [{given_answer_start:3d}, {given_answer_end:3d}] ", end="")
         print(f"pred: [{pred_answer_start:3d}, {pred_answer_end:3d}] ", end="")
