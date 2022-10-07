@@ -1,6 +1,7 @@
+import evaluate as huggingface_evaluate
 import pytorch_lightning as pl
 import torch
-from transformers import AutoModelForQuestionAnswering
+from transformers import AutoModelForQuestionAnswering, AutoTokenizer
 from transformers.modeling_outputs import QuestionAnsweringModelOutput
 
 
@@ -10,15 +11,21 @@ class QuestionAnsweringModel(pl.LightningModule):
     ):
         super().__init__()
         self.model = AutoModelForQuestionAnswering.from_pretrained(qa_model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(qa_model_name, use_fast=True)
         self.lr = lr
 
     def forward(self, x) -> QuestionAnsweringModelOutput:
-        return self.model(input_ids=x["input_ids"], attention_mask=x["attention_mask"])
+        return self.model(
+            input_ids=x["input_ids"],
+            attention_mask=x["attention_mask"],
+            start_positions=x["start_positions"],
+            end_positions=x["end_positions"],
+        )
 
     def training_step(self, batch, batch_idx):
-        model_output = self.forward(batch)
+        model_output = self(batch)
         loss = model_output.loss
-        return {"train_loss": loss}
+        return {"loss": loss}
 
     def validation_step(self, batch, batch_idx):
         model_output = self.forward(batch)
@@ -136,11 +143,45 @@ class QuestionAnsweringModel(pl.LightningModule):
         lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1)
         return [optimizer], [lr_scheduler]
 
+    def compute_metrics(self, predictions):
+        predicted_answers = []
+        given_answers = []
 
-def test_qa_model():
-    model = QuestionAnsweringModel()
-    print(model)
+        for batch_predictions in predictions:
+            example_ids = batch_predictions["example_id"]
 
+            for j in range(len(example_ids)):
+                example_id = example_ids[j]
+                input_ids = batch_predictions["input_ids"][j]
 
-if __name__ == "__main__":
-    test_qa_model()
+                given_answer_start = batch_predictions["given_answer_start"][j]
+                given_answer_end = batch_predictions["given_answer_end"][j]
+                pred_answer_start = batch_predictions["pred_answer_start"][j]
+                pred_answer_end = batch_predictions["pred_answer_end"][j]
+
+                predicted_text = self.tokenizer.decode(
+                    input_ids[pred_answer_start:pred_answer_end]
+                )
+                given_text = self.tokenizer.decode(
+                    input_ids[given_answer_start:given_answer_end]
+                )
+
+                predicted_answers.append(
+                    {"id": str(example_id), "prediction_text": predicted_text}
+                )
+                given_answers.append(
+                    {
+                        "id": str(example_id),
+                        "answers": {
+                            "text": [given_text],
+                            "answer_start": [int(given_answer_start)],
+                        },
+                    }
+                )
+
+        squad_metric = huggingface_evaluate.load("squad")
+        metric_output = squad_metric.compute(
+            predictions=predicted_answers, references=given_answers
+        )
+
+        return metric_output
