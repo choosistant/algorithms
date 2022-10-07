@@ -1,6 +1,5 @@
 import pytorch_lightning as pl
 import torch
-from datasets import load_metric
 from transformers import AutoModelForQuestionAnswering
 from transformers.modeling_outputs import QuestionAnsweringModelOutput
 
@@ -12,7 +11,6 @@ class QuestionAnsweringModel(pl.LightningModule):
         super().__init__()
         self.model = AutoModelForQuestionAnswering.from_pretrained(qa_model_name)
         self.lr = lr
-        self._squad_metric = load_metric("squad")
 
     def forward(self, x) -> QuestionAnsweringModelOutput:
         return self.model(input_ids=x["input_ids"], attention_mask=x["attention_mask"])
