@@ -1,10 +1,10 @@
 import json
 import os
-from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+import evaluate as huggingface_evaluate
 import nltk
 import numpy as np
 import pytorch_lightning as pl
@@ -171,6 +171,9 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                 answer_end_idx = answer_start_idx + answer_len
                 answers.append((answer_start_idx, answer_end_idx))
         return answers
+
+    def decode_tokens(self, tokens: torch.Tensor):
+        return self._tokenizer.decode(tokens)
 
     def _encode_qa_input(
         self,
@@ -354,13 +357,16 @@ def test_data():
     dm.prepare_data()
 
     model = QuestionAnsweringModel()
-    dataset: AmazonReviewQADataset = dm.get_data_set()
+    # dataset: AmazonReviewQADataset = dm.get_data_set()
 
     print("Making predictions...")
     trainer = pl.Trainer(max_epochs=1, accelerator="gpu", devices=1)
     predictions = trainer.predict(model, dm)
 
-    for i, batch_predictions in enumerate(predictions):
+    predicted_answers = []
+    given_answers = []
+
+    for batch_predictions in predictions:
         example_ids = batch_predictions["example_id"]
 
         for j in range(len(example_ids)):
@@ -372,19 +378,39 @@ def test_data():
             pred_answer_start = batch_predictions["pred_answer_start"][j]
             pred_answer_end = batch_predictions["pred_answer_end"][j]
             pred_score = batch_predictions["pred_score"][j]
+
+            predicted_text = dm.decode_tokens(
+                input_ids[pred_answer_start:pred_answer_end]
+            )
+            given_text = dm.decode_tokens(
+                input_ids[given_answer_start:given_answer_end]
+            )
+
             print(f"Example ID: {example_id:10d}  ", end="")
             print(f"sum(input_ids): {torch.sum(input_ids):10d}  ", end="")
             print(f"given: [{given_answer_start:3d}, {given_answer_end:3d}] ", end="")
             print(f"pred: [{pred_answer_start:3d}, {pred_answer_end:3d}] ", end="")
             print(f"pred score: {pred_score:0.4f}")
+            # print(f"  Predicted answer: {predicted_text}\n  Given answer: {given_text}")
 
-    # An annotated example can split into several features in a given data set,
-    # so we map each example in the data set to its corresponding features.
-    example_to_feature_indices_map = defaultdict(list)
-    for i in range(len(dataset)):
-        raw_item = dataset[i]
-        example_id = raw_item["example_ids"]
-        example_to_feature_indices_map[example_id].append(i)
+            predicted_answers.append(
+                {"id": str(example_id), "prediction_text": predicted_text}
+            )
+            given_answers.append(
+                {
+                    "id": str(example_id),
+                    "answers": {
+                        "text": [given_text],
+                        "answer_start": [int(given_answer_start)],
+                    },
+                }
+            )
+
+    squad_metric = huggingface_evaluate.load("squad")
+    metric_output = squad_metric.compute(
+        predictions=predicted_answers, references=given_answers
+    )
+    print(metric_output)
 
     pass
 

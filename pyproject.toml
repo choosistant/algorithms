@@ -13,7 +13,7 @@ pytorch-lightning = "^1.7.7"
 transformers = "^4.22.1"
 nltk = "^3.7"
 numba = "^0.56.2"
-datasets = "^2.5.1"
+evaluate = "^0.2.2"
 
 
 [tool.poetry.group.dev.dependencies]
