@@ -83,8 +83,16 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
         self._doc_stride = doc_stride
 
         self._question_map = {
-            "benefit": "What are the benefits of this item, if any?",
-            "drawback": "What are the drawbacks of this item, if any?",
+            "benefit": [
+                "What is the first benefit of this item, if any?",
+                "What is the second benefit of this item, if any?",
+                "What is the third benefit of this item, if any?",
+            ],
+            "drawback": [
+                "What is the first drawback of this item, if any?",
+                "What is the second drawback of this item, if any?",
+                "What is the third drawback of this item, if any?",
+            ],
         }
 
         self._prepared_data: List[Dict[str, torch.Tensor]] = []
@@ -113,9 +121,9 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                 print(f"Chunk: {chunk}")
                 print("=" * 80)
 
-            for label_val, question in self._question_map.items():
+            for label_val, questions in self._question_map.items():
                 if self._verbose:
-                    print(f"Question: {question} (label: {label_val})")
+                    print(f"Label: {label_val})")
 
                 answer_ranges = self._extract_answers(
                     chunk_start_idx=chunk_start_idx,
@@ -123,14 +131,21 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                     labels=example.labels,
                     label_val=label_val,
                 )
-                encoded_inputs = self._encode_qa_input(
-                    example=example,
-                    context=chunk,
-                    question=question,
-                    answer_ranges=answer_ranges,
-                )
-                assert len(encoded_inputs) >= 1
-                self._prepared_data += encoded_inputs
+
+                for q_idx, question in enumerate(questions):
+                    if len(answer_ranges) > q_idx:
+                        answer_range_for_question = [answer_ranges[q_idx]]
+                    else:
+                        answer_range_for_question = []
+
+                    encoded_inputs = self._encode_qa_input(
+                        example=example,
+                        context=chunk,
+                        question=question,
+                        answer_ranges=answer_range_for_question,
+                    )
+                    assert len(encoded_inputs) >= 1
+                    self._prepared_data += encoded_inputs
         if self._verbose:
             print(f"Prepared {len(self._prepared_data)} examples.")
 
@@ -386,12 +401,18 @@ def test_data():
                 input_ids[given_answer_start:given_answer_end]
             )
 
+            input_text = dm.decode_tokens(input_ids)
+            input_text = input_text.replace("<pad>", "")
+
+            print("\n")
             print(f"Example ID: {example_id:10d}  ", end="")
             print(f"sum(input_ids): {torch.sum(input_ids):10d}  ", end="")
             print(f"given: [{given_answer_start:3d}, {given_answer_end:3d}] ", end="")
             print(f"pred: [{pred_answer_start:3d}, {pred_answer_end:3d}] ", end="")
             print(f"pred score: {pred_score:0.4f}")
-            # print(f"  Predicted answer: {predicted_text}\n  Given answer: {given_text}")
+            print(f"  Input: {input_text}")
+            print(f"  Annotated answer: {given_text}")
+            print(f"  Predicted answer: {predicted_text}")
 
             predicted_answers.append(
                 {"id": str(example_id), "prediction_text": predicted_text}
