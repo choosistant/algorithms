@@ -1,5 +1,6 @@
 import json
 import os
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -26,6 +27,8 @@ class AnnotatedTextSegment:
 
 @dataclass
 class AnnotatedExample:
+    id: int
+    item_id: str
     review_text: str
     labels: List[AnnotatedTextSegment] = field(default_factory=list)
 
@@ -36,90 +39,16 @@ class AnnotatedExample:
         }
 
 
-def parse_annotation_from_label_studio(exported_annotation_item) -> dict:
-    review_text = exported_annotation_item["data"]["reviewText"]
-    example = AnnotatedExample(review_text=review_text)
-
-    for annotation_object in exported_annotation_item["annotations"]:
-        labeled_segments = annotation_object["result"]
-        for labeled_segment in labeled_segments:
-            vals = labeled_segment["value"]
-            example.labels.append(
-                AnnotatedTextSegment(
-                    label=vals["labels"][0],
-                    segment_start=vals["start"],
-                    segment_end=vals["end"],
-                    segment=vals["text"],
-                )
-            )
-    return example.to_dict()
-
-
-class AmazonReviewLabeledDataset(torch.utils.data.Dataset):
-    def __init__(self, file_path: str):
-        self._file_path = Path(file_path)
-        if not self._file_path.exists():
-            raise ValueError(f"File {self._file_path} does not exist.")
-
-        self._data = self._load_data()
-
-    def _load_data(self):
-        with open(self._file_path, "r") as f:
-            data = json.load(f)
-            examples = [parse_annotation_from_label_studio(a) for a in data]
-        return examples
-
-    def __len__(self):
-        return len(self._data)
-
-    def __getitem__(self, idx):
-        return self._data[idx]
-
-
-class AmazonReviewEvaluationDataModule(Dataset):
-    def __init__(self, data_set):
-        super(AmazonReviewEvaluationDataModule).__init__()
-        self._data_set = self._trans_to_tensor(data_set)
-
-    def __len__(self):
-        return len(self._data_set)
-
-    # def collate_fn(self,batch):
-    #     for i in batch:
-    #         for k,v in i.items():
-    #             print(v.shape)
-    #     exit(1)
-    def _trans_to_tensor(self, dataset):
-        dataset_tensor = []
-        for vals in dataset:
-            val = {}
-            for k, v in vals.items():
-                v = torch.squeeze(torch.LongTensor(v))
-                val[k] = v
-            dataset_tensor.append(val)
-        return dataset_tensor
-
-    def __getitem__(self, idx):
-        return self._data_set[idx]
-
-
 class AmazonReviewQADataset(Dataset):
     def __init__(self, items: List[Dict[str, torch.Tensor]]) -> None:
         super().__init__()
         self._items = items
-        self._default_output_keys = [
-            "input_ids",
-            "attention_mask",
-            "start_positions",
-            "end_positions",
-        ]
 
     def __len__(self):
         return len(self._items)
 
     def __getitem__(self, idx):
-        item = self._items[idx]
-        return {k: item[k] for k in self._default_output_keys}
+        return self._items[idx]
 
 
 class AmazonReviewQADataModule(pl.LightningDataModule):
@@ -207,12 +136,15 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
 
     def test_dataloader(self) -> DataLoader:
         return DataLoader(
-            dataset=AmazonReviewQADataset(self._prepared_data),
+            dataset=self.get_data_set(),
             batch_size=self._batch_size,
         )
 
     def predict_dataloader(self) -> DataLoader:
         return self.test_dataloader()
+
+    def get_data_set(self) -> AmazonReviewQADataset:
+        return AmazonReviewQADataset(self._prepared_data)
 
     def _extract_answers(
         self,
@@ -266,7 +198,8 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
 
         for i, offsets in enumerate(offset_mapping):
             seq_ids = np.array(encoded_question_and_context.sequence_ids(i))
-            context_token_indices = np.where(seq_ids == 1)[0]
+            context_mask = seq_ids == 1
+            context_token_indices = np.where(context_mask)[0]
             context_start_idx = context_token_indices[0]
             context_end_idx = context_token_indices[-1]
 
@@ -286,9 +219,10 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             if len(answer_ranges) == 0:
                 encoded_qa_inputs.append(
                     {
-                        "example": example,
+                        "example_ids": torch.tensor([example.id]),
                         "input_ids": input_ids,
                         "attention_mask": attention_masks,
+                        "context_mask": context_mask,
                         "start_positions": torch.tensor([bos_index]),
                         "end_positions": torch.tensor([bos_index]),
                     }
@@ -300,9 +234,10 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
 
             for answer_start_idx, answer_end_idx in answer_ranges:
                 item = {
-                    "example": example,
+                    "example_ids": torch.tensor([example.id]),
                     "input_ids": input_ids,
                     "attention_mask": attention_masks,
+                    "context_mask": context_mask,
                 }
                 encoded_qa_inputs.append(item)
 
@@ -392,8 +327,11 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             return [self._parse_annotated_example(item) for item in items]
 
     def _parse_annotated_example(self, exported_annotation_item) -> AnnotatedExample:
-        review_text = exported_annotation_item["data"]["reviewText"]
-        example = AnnotatedExample(review_text=review_text)
+        example = AnnotatedExample(
+            id=exported_annotation_item["data"]["index"],
+            item_id=exported_annotation_item["data"]["asin"],
+            review_text=exported_annotation_item["data"]["reviewText"],
+        )
 
         for annotation_object in exported_annotation_item["annotations"]:
             labeled_segments = annotation_object["result"]
@@ -415,13 +353,39 @@ def test_data():
     dm.setup()
     dm.prepare_data()
 
-    trainer = pl.Trainer(max_epochs=1, accelerator="gpu", devices=1)
     model = QuestionAnsweringModel()
+    dataset: AmazonReviewQADataset = dm.get_data_set()
 
     print("Making predictions...")
+    trainer = pl.Trainer(max_epochs=1, accelerator="gpu", devices=1)
     predictions = trainer.predict(model, dm)
-    print(predictions[0].loss)
-    print(predictions[0].start_logits)
+
+    for i, batch_predictions in enumerate(predictions):
+        example_ids = batch_predictions["example_id"]
+
+        for j in range(len(example_ids)):
+            example_id = example_ids[j]
+            input_ids = batch_predictions["input_ids"][j]
+
+            given_answer_start = batch_predictions["given_answer_start"][j]
+            given_answer_end = batch_predictions["given_answer_end"][j]
+            pred_answer_start = batch_predictions["pred_answer_start"][j]
+            pred_answer_end = batch_predictions["pred_answer_end"][j]
+            pred_score = batch_predictions["pred_score"][j]
+            print(f"Example ID: {example_id:10d}  ", end="")
+            print(f"sum(input_ids): {torch.sum(input_ids):10d}  ", end="")
+            print(f"given: [{given_answer_start:3d}, {given_answer_end:3d}] ", end="")
+            print(f"pred: [{pred_answer_start:3d}, {pred_answer_end:3d}] ", end="")
+            print(f"pred score: {pred_score:0.4f}")
+
+    # An annotated example can split into several features in a given data set,
+    # so we map each example in the data set to its corresponding features.
+    example_to_feature_indices_map = defaultdict(list)
+    for i in range(len(dataset)):
+        raw_item = dataset[i]
+        example_id = raw_item["example_ids"]
+        example_to_feature_indices_map[example_id].append(i)
+
     pass
 
 
