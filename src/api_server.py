@@ -59,7 +59,7 @@ class BenefitsAndDrawbacksExtractor:
         for i in range(len(labels)):
             output.append(
                 LabeledSegment(
-                    segment=results["pred_answer"][i],
+                    segment=results["pred_answer"][i].strip(),
                     label=labels[i],
                     score=results["pred_score"][i],
                 )
