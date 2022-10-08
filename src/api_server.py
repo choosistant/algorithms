@@ -1,4 +1,5 @@
 import json
+import random
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -8,12 +9,18 @@ import torch
 from fastapi import FastAPI
 from loguru import logger
 from pydantic import BaseModel
+from torch.utils.data import DataLoader
+
+from src.data import QuestionAnsweringInputEncoder, QuestionAnsweringModelInput
+from src.models.qa import QuestionAnsweringModel
 
 
 @dataclass
 class ApiServerConfig:
     prediction_log_path: str = "./data/logs/predictions/logs.jsonl"
     api_log_path: str = "./data/logs/api/logs.txt"
+    model_name: str = "choosistant/qa-model"
+    batch_size: int = 8
 
 
 @dataclass
@@ -27,14 +34,38 @@ class LabeledSegment:
 
 
 class BenefitsAndDrawbacksExtractor:
-    def __init__(self) -> None:
-        pass
+    def __init__(self, model_name: str, batch_size: int) -> None:
+        self._model = QuestionAnsweringModel(qa_model_name=model_name)
+        self._encoder = QuestionAnsweringInputEncoder(self._model.tokenizer)
+        self._batch_size = batch_size
 
     def predict(self, document: str) -> List[LabeledSegment]:
-        return [
-            LabeledSegment(segment="segment1", label="benefit", score=0.9),
-            LabeledSegment(segment="segment2", label="drawback", score=0.8),
-        ]
+        example_id = random.getrandbits(32)
+        encoded_inputs: List[QuestionAnsweringModelInput] = self._encoder.encode(
+            input_text=document, example_id=example_id
+        )
+        data_loader = DataLoader(
+            dataset=[item.to_dict() for item in encoded_inputs],
+            batch_size=self._batch_size,
+            num_workers=2,
+            pin_memory=True,
+            shuffle=False,
+        )
+
+        results = self._model.predict_all(data_loader=data_loader)
+
+        labels = ["benefit"] * 3 + ["drawback"] * 3
+        output = []
+        for i in range(len(labels)):
+            output.append(
+                LabeledSegment(
+                    segment=results["pred_answer"][i],
+                    label=labels[i],
+                    score=results["pred_score"][i],
+                )
+            )
+
+        return output
 
 
 class PredictRequest(BaseModel):
@@ -59,7 +90,10 @@ def startup_event():
     logger.add(cnf.api_log_path, rotation="1 day", retention="7 days")
     logger.info("Starting API server")
 
-    classifier = BenefitsAndDrawbacksExtractor()
+    classifier = BenefitsAndDrawbacksExtractor(
+        model_name=cnf.model_name,
+        batch_size=cnf.batch_size,
+    )
 
     # Ensure parent directories exist.
     Path(cnf.prediction_log_path).parent.mkdir(parents=True, exist_ok=True)
@@ -100,7 +134,7 @@ def predict(request: PredictRequest):
 
     # construct response
     return PredictResponse(
-        segments=[o.segment for o in predictions],
-        labels=[o.label for o in predictions],
-        scores=[o.score for o in predictions],
+        segments=[pred.segment for pred in predictions],
+        labels=[pred.label for pred in predictions],
+        scores=[pred.score for pred in predictions],
     )
