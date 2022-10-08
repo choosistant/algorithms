@@ -69,7 +69,7 @@ class BenefitsAndDrawbacksExtractor:
 
 
 class PredictRequest(BaseModel):
-    #url: str
+    # url: str
     review_text: str
 
 
@@ -131,6 +131,7 @@ def predict(request: PredictRequest):
     }
     prediction_log_file.write(f"{json.dumps(log_info)}\n")
     prediction_log_file.flush()
+
 
     # construct response
     return str(PredictResponse(
