@@ -36,3 +36,9 @@ Run API server for development purposes:
 ```bash
 poetry run uvicorn src.api_server:app --reload
 ```
+
+Run API server in production:
+
+```bash
+poetry run gunicorn -w 4 -k uvicorn.workers.UvicornWorker --timeout 300 --bind 0.0.0.0:8000 src.api_server:app
+```
