@@ -69,7 +69,7 @@ class BenefitsAndDrawbacksExtractor:
 
 
 class PredictRequest(BaseModel):
-    url: str
+    #url: str
     review_text: str
 
 
@@ -133,8 +133,8 @@ def predict(request: PredictRequest):
     prediction_log_file.flush()
 
     # construct response
-    return PredictResponse(
+    return str(PredictResponse(
         segments=[pred.segment for pred in predictions],
         labels=[pred.label for pred in predictions],
         scores=[pred.score for pred in predictions],
-    )
+    ))
