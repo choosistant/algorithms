@@ -30,3 +30,9 @@ Run dummy model:
 ```bash
 poetry run python -m src.test_dummy
 ```
+
+Run API server for development purposes:
+
+```bash
+poetry run uvicorn src.api_server:app --reload
+```

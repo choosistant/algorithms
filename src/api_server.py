@@ -1,0 +1,106 @@
+import json
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import List
+
+import torch
+from fastapi import FastAPI
+from loguru import logger
+from pydantic import BaseModel
+
+
+@dataclass
+class ApiServerConfig:
+    prediction_log_path: str = "./data/logs/predictions/logs.jsonl"
+    api_log_path: str = "./data/logs/api/logs.txt"
+
+
+@dataclass
+class LabeledSegment:
+    segment: str
+    label: str
+    score: float
+
+    def to_dict(self):
+        return self.__dict__
+
+
+class BenefitsAndDrawbacksExtractor:
+    def __init__(self) -> None:
+        pass
+
+    def predict(self, document: str) -> List[LabeledSegment]:
+        return [
+            LabeledSegment(segment="segment1", label="benefit", score=0.9),
+            LabeledSegment(segment="segment2", label="drawback", score=0.8),
+        ]
+
+
+class PredictRequest(BaseModel):
+    url: str
+    review_text: str
+
+
+class PredictResponse(BaseModel):
+    segments: List[str]
+    labels: List[str]
+    scores: List[float]
+
+
+app = FastAPI()
+cnf = ApiServerConfig()
+
+
+@app.on_event("startup")
+def startup_event():
+    global classifier
+    global prediction_log_file
+    logger.add(cnf.api_log_path, rotation="1 day", retention="7 days")
+    logger.info("Starting API server")
+
+    classifier = BenefitsAndDrawbacksExtractor()
+
+    # Ensure parent directories exist.
+    Path(cnf.prediction_log_path).parent.mkdir(parents=True, exist_ok=True)
+    prediction_log_file = open(cnf.prediction_log_path, "a")
+
+    logger.info("Setup completed")
+
+
+@app.on_event("shutdown")
+def shutdown_event():
+    prediction_log_file.close()
+    logger.info("Shutting down application")
+
+
+@app.get("/")
+def read_root():
+    return {"message": "Please use the /predict endpoint to make predictions"}
+
+
+@app.post("/predict", response_model=PredictResponse)
+def predict(request: PredictRequest):
+    # get model prediction for the input request
+    start_time = datetime.now()
+    predictions = classifier.predict(request.review_text)
+    end_time = datetime.now()
+    inference_time_ms = (end_time - start_time).total_seconds() * 1000
+
+    # construct the data to be logged
+    log_info = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "request": request.dict(),
+        "predictions": [o.to_dict() for o in predictions],
+        "inference_time_ms": int(inference_time_ms),
+        "inference_device": torch.cuda.get_device_name(),
+    }
+    prediction_log_file.write(f"{json.dumps(log_info)}\n")
+    prediction_log_file.flush()
+
+    # construct response
+    return PredictResponse(
+        segments=[o.segment for o in predictions],
+        labels=[o.label for o in predictions],
+        scores=[o.score for o in predictions],
+    )
