@@ -185,3 +185,20 @@ class QuestionAnsweringModel(pl.LightningModule):
         )
 
         return metric_output
+
+    def push_to_hub(self, repo_id: str, use_auth_token: str):
+        print(f"Pushing model to the {repo_id} using token {use_auth_token}...")
+        model_push_result = self.model.push_to_hub(
+            repo_id=repo_id,
+            use_auth_token=use_auth_token,
+            use_temp_dir=True,
+        )
+        print(f"Model pushed to the Hub: {model_push_result}")
+        print("Pushing tokenizer to the Hub...")
+        token_push_result = self.tokenizer.push_to_hub(
+            repo_id=repo_id,
+            use_auth_token=use_auth_token,
+            use_temp_dir=True,
+        )
+        print(f"Tokenizer pushed to the Hub: {token_push_result}")
+        return model_push_result, token_push_result
