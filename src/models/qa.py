@@ -1,3 +1,5 @@
+from typing import Dict
+
 import evaluate as huggingface_evaluate
 import pytorch_lightning as pl
 import torch
@@ -5,73 +7,26 @@ from transformers import AutoModelForQuestionAnswering, AutoTokenizer
 from transformers.modeling_outputs import QuestionAnsweringModelOutput
 
 
-class QuestionAnsweringModel(pl.LightningModule):
-    def __init__(
-        self, qa_model_name: str = "deepset/roberta-base-squad2", lr: float = 1e-5
-    ):
-        super().__init__()
-        self.model = AutoModelForQuestionAnswering.from_pretrained(qa_model_name)
-        self.tokenizer = AutoTokenizer.from_pretrained(qa_model_name, use_fast=True)
-        self.lr = lr
-
-    def forward(self, x) -> QuestionAnsweringModelOutput:
-        return self.model(
-            input_ids=x["input_ids"],
-            attention_mask=x["attention_mask"],
-            start_positions=x["start_positions"],
-            end_positions=x["end_positions"],
-        )
-
-    def training_step(self, batch, batch_idx):
-        model_output = self(batch)
-        loss = model_output.loss
-        return {"loss": loss}
-
-    def validation_step(self, batch, batch_idx):
-        model_output = self.forward(batch)
-        loss = model_output.loss
-        return {"val_loss": loss}
-
-    def test_step(self, batch, batch_idx):
-        outputs = self.forward(batch)
-        pred_answer_start = torch.argmax(outputs.start_logits, dim=1)
-        pred_answer_end = torch.argmax(outputs.end_logits, dim=1)
-        if "start_positions" not in batch or "end_positions" not in batch:
-            raise ValueError(
-                "Examples in batch is not labelled. Cannot compute accuracy."
-            )
-        given_answer_start = torch.squeeze(batch["start_positions"])
-        given_answer_end = torch.squeeze(batch["end_positions"])
-        print(f"pred_start: {pred_answer_start}, pred_end: {pred_answer_end}")
-        print(f"answer_start: {given_answer_start}, answer_end: {given_answer_end}")
-        return outputs
-
-    def predict_step(
-        self,
-        batch: dict,
-        batch_idx: int,
-        dataloader_idx: int = 0,
-    ) -> dict:
-        model_output = self.forward(batch)
-        return self.generate_batch_predictions(
-            model_input=batch, model_output=model_output
-        )
-
-    def generate_batch_predictions(
-        self,
-        model_input: dict,
-        model_output: QuestionAnsweringModelOutput,
-    ) -> dict:
-        predict_results = {
+class QuestionAnsweringPostProcessor:
+    def __init__(self, tokenizer) -> None:
+        self._tokenizer = tokenizer
+        self._predict_results = {
             "example_id": [],
             "input_ids": [],
             "given_answer_start": [],
             "given_answer_end": [],
+            "given_answer": [],
             "pred_answer_start": [],
             "pred_answer_end": [],
             "pred_score": [],
+            "pred_answer": [],
         }
 
+    def process_batch(
+        self,
+        model_input: dict,
+        model_output: QuestionAnsweringModelOutput,
+    ) -> None:
         for j in range(len(model_input["example_ids"])):
             start_logits = model_output.start_logits[[j], :]
             end_logits = model_output.end_logits[[j], :]
@@ -121,22 +76,96 @@ class QuestionAnsweringModel(pl.LightningModule):
             # to get the start_index and end_index.
             pred_answer_start = max_index // scores.shape[1]
             pred_answer_end = max_index % scores.shape[1]
-            pred_score = scores[pred_answer_start, pred_answer_end]
+            pred_score = scores[pred_answer_start, pred_answer_end].item()
 
             # Get the given labels for the item.
             given_answer_start = model_input["start_positions"][j].item()
             given_answer_end = model_input["end_positions"][j].item()
 
-            # Append the results to the list.
-            predict_results["example_id"].append(model_input["example_ids"][j].item())
-            predict_results["input_ids"].append(model_input["input_ids"][j])
-            predict_results["given_answer_start"].append(given_answer_start)
-            predict_results["given_answer_end"].append(given_answer_end)
-            predict_results["pred_answer_start"].append(pred_answer_start)
-            predict_results["pred_answer_end"].append(pred_answer_end)
-            predict_results["pred_score"].append(pred_score)
+            input_ids = model_input["input_ids"][j]
 
-        return predict_results
+            predicted_text = self._tokenizer.decode(
+                input_ids[pred_answer_start:pred_answer_end]
+            )
+            given_text = self._tokenizer.decode(
+                input_ids[given_answer_start:given_answer_end]
+            )
+
+            # Append the results to the list.
+            self._predict_results["example_id"].append(
+                model_input["example_ids"][j].item()
+            )
+            self._predict_results["input_ids"].append(input_ids)
+            self._predict_results["given_answer_start"].append(given_answer_start)
+            self._predict_results["given_answer_end"].append(given_answer_end)
+            self._predict_results["given_answer"].append(given_text)
+            self._predict_results["pred_answer_start"].append(pred_answer_start)
+            self._predict_results["pred_answer_end"].append(pred_answer_end)
+            self._predict_results["pred_score"].append(pred_score)
+            self._predict_results["pred_answer"].append(predicted_text)
+
+    def get_results(self):
+        return self._predict_results
+
+
+class QuestionAnsweringModel(pl.LightningModule):
+    def __init__(
+        self, qa_model_name: str = "deepset/roberta-base-squad2", lr: float = 1e-5
+    ):
+        super().__init__()
+        self.model = AutoModelForQuestionAnswering.from_pretrained(qa_model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(qa_model_name, use_fast=True)
+        self.lr = lr
+
+    def forward(self, x) -> QuestionAnsweringModelOutput:
+        return self.model(
+            input_ids=x["input_ids"],
+            attention_mask=x["attention_mask"],
+            start_positions=x["start_positions"],
+            end_positions=x["end_positions"],
+        )
+
+    def training_step(self, batch, batch_idx):
+        model_output = self(batch)
+        loss = model_output.loss
+        return {"loss": loss}
+
+    def validation_step(self, batch, batch_idx):
+        model_output = self.forward(batch)
+        loss = model_output.loss
+        return {"val_loss": loss}
+
+    def test_step(self, batch, batch_idx):
+        outputs = self.forward(batch)
+        pred_answer_start = torch.argmax(outputs.start_logits, dim=1)
+        pred_answer_end = torch.argmax(outputs.end_logits, dim=1)
+        if "start_positions" not in batch or "end_positions" not in batch:
+            raise ValueError(
+                "Examples in batch is not labelled. Cannot compute accuracy."
+            )
+        given_answer_start = torch.squeeze(batch["start_positions"])
+        given_answer_end = torch.squeeze(batch["end_positions"])
+        print(f"pred_start: {pred_answer_start}, pred_end: {pred_answer_end}")
+        print(f"answer_start: {given_answer_start}, answer_end: {given_answer_end}")
+        return outputs
+
+    def predict_step(
+        self,
+        batch: dict,
+        batch_idx: int,
+        dataloader_idx: int = 0,
+    ) -> dict:
+        post_processor = QuestionAnsweringPostProcessor(tokenizer=self.tokenizer)
+        model_output = self.forward(batch)
+        post_processor.process_batch(model_input=batch, model_output=model_output)
+        return post_processor.get_results()
+
+    def predict_all(self, data_loader) -> Dict[str, list]:
+        post_processor = QuestionAnsweringPostProcessor(tokenizer=self.tokenizer)
+        for batch in data_loader:
+            model_output = self.forward(batch)
+            post_processor.process_batch(model_input=batch, model_output=model_output)
+        return post_processor.get_results()
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
