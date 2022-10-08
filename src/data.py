@@ -1,10 +1,8 @@
 import json
-import multiprocessing as mp
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from time import time
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import evaluate as huggingface_evaluate
 import nltk
@@ -52,24 +50,21 @@ class AmazonReviewQADataset(Dataset):
         return self._items[idx]
 
 
-class AmazonReviewQADataModule(pl.LightningDataModule):
-    def __init__(
-        self,
-        file_path: str,
-        tokenizer,
-        batch_size: int = 32,
-        doc_stride: int = 128,
-        verbose: bool = True,
-    ) -> None:
-        super().__init__()
-        self._file_path = Path(file_path)
-        if not self._file_path.exists():
-            raise ValueError(f"Data file {self._file_path} does not exist.")
+@dataclass(frozen=True)
+class QuestionAnsweringModelInput(dict):
+    example_ids: torch.Tensor
+    input_ids: torch.tensor
+    attention_mask: torch.tensor
+    context_mask: torch.tensor
+    start_positions: torch.tensor
+    end_positions: torch.tensor
 
-        self._verbose = verbose
+    def to_dict(self):
+        return self.__dict__
 
-        self._batch_size = batch_size
 
+class QuestionAnsweringInputEncoder:
+    def __init__(self, tokenizer, doc_stride: int = 128) -> None:
         self._tokenizer = tokenizer
 
         # The model input is limited to 512 tokens. We need to split the document into
@@ -96,133 +91,52 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             ],
         }
 
-        self._prepared_data: List[Dict[str, torch.Tensor]] = []
-
-    def setup(self, stage=None):
-        nltk.download("punkt")
-
-    def prepare_data(self) -> None:
-        examples = self._parse_annoted_examples()
-
-        if self._verbose:
-            print(f"Found {len(examples)} examples.")
-
-        self._prepared_data.clear()
-
-        for example in examples:
-            # Chunks are the sub documents that we will feed to the model.
-            # It may be useful to split the document into sub documents.
-            # For now, we just use the entire document as a single chunk.
-            chunk_start_idx, chunk_end_idx = 0, len(example.review_text)
-
-            # Extract the chunk text from the orig review text.
-            chunk = example.review_text[chunk_start_idx:chunk_end_idx]
-            if self._verbose:
-                print("=" * 80)
-                print(f"Chunk: {chunk}")
-                print("=" * 80)
-
-            for label_val, questions in self._question_map.items():
-                if self._verbose:
-                    print(f"Label: {label_val})")
-
-                answer_ranges = self._extract_answers(
-                    chunk_start_idx=chunk_start_idx,
-                    chunk_end_idx=chunk_end_idx,
-                    labels=example.labels,
-                    label_val=label_val,
-                )
-
-                for q_idx, question in enumerate(questions):
-                    if len(answer_ranges) > q_idx:
-                        answer_range_for_question = [answer_ranges[q_idx]]
-                    else:
-                        answer_range_for_question = []
-
-                    encoded_inputs = self._encode_qa_input(
-                        example=example,
-                        context=chunk,
-                        question=question,
-                        answer_ranges=answer_range_for_question,
-                    )
-                    assert len(encoded_inputs) >= 1
-                    self._prepared_data += encoded_inputs
-        if self._verbose:
-            print(f"Prepared {len(self._prepared_data)} examples.")
-
-    def _determine_best_num_workers(self) -> None:
-        for num_workers in range(2, mp.cpu_count() + 1, 2):
-            loader = DataLoader(
-                dataset=self.get_data_set(),
-                shuffle=True,
-                num_workers=num_workers,
-                batch_size=self._batch_size,
-                pin_memory=True,
-            )
-            start = time()
-            for _ in range(1, 3):
-                for _ in loader:
-                    pass
-            duration = time() - start
-            print(f"Using {num_workers} workers takes {duration:.0f} seconds")
-
-    def train_dataloader(self) -> DataLoader:
-        return DataLoader(
-            dataset=self.get_data_set(),
-            batch_size=self._batch_size,
-            num_workers=4,
-            pin_memory=True,
-            shuffle=True,
-        )
-
-    def test_dataloader(self) -> DataLoader:
-        return DataLoader(
-            dataset=self.get_data_set(),
-            batch_size=self._batch_size,
-            num_workers=4,
-            pin_memory=True,
-            shuffle=False,
-        )
-
-    def predict_dataloader(self) -> DataLoader:
-        return self.test_dataloader()
-
-    def get_data_set(self) -> AmazonReviewQADataset:
-        return AmazonReviewQADataset(self._prepared_data)
-
-    def _extract_answers(
+    def encode(
         self,
-        chunk_start_idx: int,
-        chunk_end_idx: int,
-        labels: List[AnnotatedTextSegment],
-        label_val: str,
-    ) -> List[Tuple[int, int]]:
-        answers = []
-        for current_annoted_segment in labels:
-            if current_annoted_segment.label != label_val:
-                continue
-            if (
-                current_annoted_segment.segment_start >= chunk_start_idx
-                and current_annoted_segment.segment_end <= chunk_end_idx
-            ):
-                answer_len = (
-                    current_annoted_segment.segment_end
-                    - current_annoted_segment.segment_start
+        input_text: str,
+        example_id: int,
+        labels: List[AnnotatedTextSegment] = None,
+    ) -> List[QuestionAnsweringModelInput]:
+
+        ret_input = []
+
+        # Chunks are the sub documents that we will feed to the model.
+        # It may be useful to split the document into sub documents.
+        # For now, we just use the entire document as a single chunk.
+        chunk_start_idx, chunk_end_idx = 0, len(input_text)
+
+        for label_val, questions in self._question_map.items():
+            answer_ranges = self._extract_answers(
+                chunk_start_idx=chunk_start_idx,
+                chunk_end_idx=chunk_end_idx,
+                labels=labels,
+                label_val=label_val,
+            )
+
+            for q_idx, question in enumerate(questions):
+                if len(answer_ranges) > q_idx:
+                    answer_range_for_question = [answer_ranges[q_idx]]
+                else:
+                    answer_range_for_question = []
+
+                encoded_inputs = self._encode_qa_input(
+                    context=input_text,
+                    question=question,
+                    answer_ranges=answer_range_for_question,
+                    example_id=example_id,
                 )
-                answer_start_idx = (
-                    current_annoted_segment.segment_start - chunk_start_idx
-                )
-                answer_end_idx = answer_start_idx + answer_len
-                answers.append((answer_start_idx, answer_end_idx))
-        return answers
+                assert len(encoded_inputs) >= 1
+                ret_input += encoded_inputs
+
+        return ret_input
 
     def _encode_qa_input(
         self,
-        example: AnnotatedExample,
         context: str,
         question: str,
         answer_ranges: List[Tuple[int, int]],
-    ) -> List[Dict[str, torch.Tensor]]:
+        example_id: Optional[int] = None,
+    ) -> List[QuestionAnsweringModelInput]:
         encoded_qa_inputs = []
 
         encoded_question_and_context = self._tokenizer.encode_plus(
@@ -250,9 +164,6 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             input_ids = encoded_question_and_context["input_ids"][i]
             attention_masks = encoded_question_and_context["attention_mask"][i]
 
-            if self._verbose:
-                print(f"  Decoded input: {self._tokenizer.decode(input_ids)}")
-
             # Assume that the [CLS] token is at the beginning of the input.
             # Alternatively, we can find the index of the [CLS] token:
             #   input_ids.index(self._tokenizer.cls_token_id)
@@ -262,14 +173,14 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             # to the [CLS] token.
             if len(answer_ranges) == 0:
                 encoded_qa_inputs.append(
-                    {
-                        "example_ids": torch.tensor([example.id]),
-                        "input_ids": input_ids,
-                        "attention_mask": attention_masks,
-                        "context_mask": context_mask,
-                        "start_positions": torch.tensor([bos_index]),
-                        "end_positions": torch.tensor([bos_index]),
-                    }
+                    QuestionAnsweringModelInput(
+                        example_ids=torch.tensor([example_id]),
+                        input_ids=input_ids,
+                        attention_mask=attention_masks,
+                        context_mask=context_mask,
+                        start_positions=torch.tensor([bos_index]),
+                        end_positions=torch.tensor([bos_index]),
+                    )
                 )
                 continue
 
@@ -277,28 +188,22 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
             context_boundary_end = offsets[context_end_idx][1]
 
             for answer_start_idx, answer_end_idx in answer_ranges:
-                item = {
-                    "example_ids": torch.tensor([example.id]),
-                    "input_ids": input_ids,
-                    "attention_mask": attention_masks,
-                    "context_mask": context_mask,
-                }
-                encoded_qa_inputs.append(item)
-
                 if (
                     context_boundary_start > answer_start_idx
                     or context_boundary_end < answer_end_idx
                 ):
-                    if self._verbose:
-                        print("   No benefit answer in this chunk!")
 
-                    item["start_positions"] = torch.tensor([bos_index])
-                    item["end_positions"] = torch.tensor([bos_index])
+                    encoded_qa_inputs.append(
+                        QuestionAnsweringModelInput(
+                            example_ids=torch.tensor([example_id]),
+                            input_ids=input_ids,
+                            attention_mask=attention_masks,
+                            context_mask=context_mask,
+                            start_positions=torch.tensor([bos_index]),
+                            end_positions=torch.tensor([bos_index]),
+                        )
+                    )
                 else:
-                    if self._verbose:
-                        original_answer = context[answer_start_idx:answer_end_idx]
-                        print(f"  Original answer: {original_answer}")
-
                     token_start_index = context_start_idx
                     while offsets[token_start_index][0] < answer_start_idx:
                         token_start_index += 1
@@ -308,18 +213,117 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                         token_end_index -= 1
                     token_end_index += 1
 
-                    if self._verbose:
-                        decoded_answer = self._tokenizer.decode(
-                            input_ids[token_start_index:token_end_index]
+                    encoded_qa_inputs.append(
+                        QuestionAnsweringModelInput(
+                            example_ids=torch.tensor([example_id]),
+                            input_ids=input_ids,
+                            attention_mask=attention_masks,
+                            context_mask=context_mask,
+                            start_positions=torch.tensor([token_start_index]),
+                            end_positions=torch.tensor([token_end_index]),
                         )
-                        print(f"  Decoded answer: {decoded_answer}")
-
-                    item["start_positions"] = torch.tensor([token_start_index])
-                    item["end_positions"] = torch.tensor([token_end_index])
-                if self._verbose:
-                    print("-" * 80)
+                    )
 
         return encoded_qa_inputs
+
+    def _extract_answers(
+        self,
+        chunk_start_idx: int,
+        chunk_end_idx: int,
+        labels: List[AnnotatedTextSegment],
+        label_val: str,
+    ) -> List[Tuple[int, int]]:
+        answers = []
+        if labels is not None and len(labels) > 0:
+            for current_annoted_segment in labels:
+                if current_annoted_segment.label != label_val:
+                    continue
+                if (
+                    current_annoted_segment.segment_start >= chunk_start_idx
+                    and current_annoted_segment.segment_end <= chunk_end_idx
+                ):
+                    answer_len = (
+                        current_annoted_segment.segment_end
+                        - current_annoted_segment.segment_start
+                    )
+                    answer_start_idx = (
+                        current_annoted_segment.segment_start - chunk_start_idx
+                    )
+                    answer_end_idx = answer_start_idx + answer_len
+                    answers.append((answer_start_idx, answer_end_idx))
+        return answers
+
+
+class AmazonReviewQADataModule(pl.LightningDataModule):
+    def __init__(
+        self,
+        file_path: str,
+        tokenizer,
+        batch_size: int = 32,
+        doc_stride: int = 128,
+        verbose: bool = True,
+    ) -> None:
+        super().__init__()
+        self._file_path = Path(file_path)
+        if not self._file_path.exists():
+            raise ValueError(f"Data file {self._file_path} does not exist.")
+
+        self._verbose = verbose
+
+        self._batch_size = batch_size
+
+        self._tokenizer = tokenizer
+
+        self._prepared_data: List[Dict[str, torch.Tensor]] = []
+
+    def setup(self, stage=None):
+        nltk.download("punkt")
+
+    def prepare_data(self) -> None:
+        examples = self._parse_annoted_examples()
+
+        if self._verbose:
+            print(f"Found {len(examples)} examples.")
+
+        self._prepared_data.clear()
+
+        encoder = QuestionAnsweringInputEncoder(self._tokenizer)
+
+        for example in examples:
+            encoded_inputs = encoder.encode(
+                input_text=example.review_text,
+                example_id=example.id,
+                labels=example.labels,
+            )
+
+            self._prepared_data += [item.to_dict() for item in encoded_inputs]
+
+        if self._verbose:
+            print(f"Prepared {len(self._prepared_data)} examples.")
+
+    def train_dataloader(self) -> DataLoader:
+        return DataLoader(
+            dataset=self.get_data_set(),
+            batch_size=self._batch_size,
+            num_workers=4,
+            pin_memory=True,
+            shuffle=True,
+        )
+
+    def test_dataloader(self) -> DataLoader:
+        return DataLoader(
+            dataset=self.get_data_set(),
+            batch_size=self._batch_size,
+            num_workers=4,
+            pin_memory=True,
+            shuffle=False,
+        )
+
+    def predict_dataloader(self) -> DataLoader:
+        return self.test_dataloader()
+
+    def get_data_set(self) -> AmazonReviewQADataset:
+        return AmazonReviewQADataset(self._prepared_data)
 
     def _split_text_into_chunks_by_sentence_pairings(
         self, review_text: str, n_sentences_to_pair: int = 3
