@@ -1,7 +1,9 @@
 import json
+import multiprocessing as mp
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from time import time
 from typing import Dict, List, Tuple
 
 import evaluate as huggingface_evaluate
@@ -10,7 +12,6 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader, Dataset
-from transformers import AutoTokenizer
 
 from src.models.qa import QuestionAnsweringModel
 
@@ -55,7 +56,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
     def __init__(
         self,
         file_path: str,
-        qa_model_name: str = "deepset/roberta-base-squad2",
+        tokenizer,
         batch_size: int = 32,
         doc_stride: int = 128,
         verbose: bool = True,
@@ -69,7 +70,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
 
         self._batch_size = batch_size
 
-        self._tokenizer = AutoTokenizer.from_pretrained(qa_model_name, use_fast=True)
+        self._tokenizer = tokenizer
 
         # The model input is limited to 512 tokens. We need to split the document into
         # sub documents if it is longer than 512 tokens.
@@ -149,10 +150,38 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
         if self._verbose:
             print(f"Prepared {len(self._prepared_data)} examples.")
 
+    def _determine_best_num_workers(self) -> None:
+        for num_workers in range(2, mp.cpu_count() + 1, 2):
+            loader = DataLoader(
+                dataset=self.get_data_set(),
+                shuffle=True,
+                num_workers=num_workers,
+                batch_size=self._batch_size,
+                pin_memory=True,
+            )
+            start = time()
+            for _ in range(1, 3):
+                for _ in loader:
+                    pass
+            duration = time() - start
+            print(f"Using {num_workers} workers takes {duration:.0f} seconds")
+
+    def train_dataloader(self) -> DataLoader:
+        return DataLoader(
+            dataset=self.get_data_set(),
+            batch_size=self._batch_size,
+            num_workers=4,
+            pin_memory=True,
+            shuffle=True,
+        )
+
     def test_dataloader(self) -> DataLoader:
         return DataLoader(
             dataset=self.get_data_set(),
             batch_size=self._batch_size,
+            num_workers=4,
+            pin_memory=True,
+            shuffle=False,
         )
 
     def predict_dataloader(self) -> DataLoader:
@@ -186,9 +215,6 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
                 answer_end_idx = answer_start_idx + answer_len
                 answers.append((answer_start_idx, answer_end_idx))
         return answers
-
-    def decode_tokens(self, tokens: torch.Tensor):
-        return self._tokenizer.decode(tokens)
 
     def _encode_qa_input(
         self,
@@ -366,18 +392,7 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
         return example
 
 
-def test_data():
-    dm = AmazonReviewQADataModule(file_path="data/sample.json", verbose=False)
-    dm.setup()
-    dm.prepare_data()
-
-    model = QuestionAnsweringModel()
-    # dataset: AmazonReviewQADataset = dm.get_data_set()
-
-    print("Making predictions...")
-    trainer = pl.Trainer(max_epochs=1, accelerator="gpu", devices=1)
-    predictions = trainer.predict(model, dm)
-
+def compute_metrics(predictions, tokenizer, verbose=False):
     predicted_answers = []
     given_answers = []
 
@@ -394,25 +409,27 @@ def test_data():
             pred_answer_end = batch_predictions["pred_answer_end"][j]
             pred_score = batch_predictions["pred_score"][j]
 
-            predicted_text = dm.decode_tokens(
+            predicted_text = tokenizer.decode(
                 input_ids[pred_answer_start:pred_answer_end]
             )
-            given_text = dm.decode_tokens(
+            given_text = tokenizer.decode(
                 input_ids[given_answer_start:given_answer_end]
             )
 
-            input_text = dm.decode_tokens(input_ids)
-            input_text = input_text.replace("<pad>", "")
+            if verbose:
+                print("\n")
+                print(f"Example ID: {example_id:10d}  ", end="")
+                print(
+                    f"given: [{given_answer_start:3d}, {given_answer_end:3d}] ", end=""
+                )
+                print(f"pred: [{pred_answer_start:3d}, {pred_answer_end:3d}] ", end="")
+                print(f"pred score: {pred_score:0.4f}")
 
-            print("\n")
-            print(f"Example ID: {example_id:10d}  ", end="")
-            print(f"sum(input_ids): {torch.sum(input_ids):10d}  ", end="")
-            print(f"given: [{given_answer_start:3d}, {given_answer_end:3d}] ", end="")
-            print(f"pred: [{pred_answer_start:3d}, {pred_answer_end:3d}] ", end="")
-            print(f"pred score: {pred_score:0.4f}")
-            print(f"  Input: {input_text}")
-            print(f"  Annotated answer: {given_text}")
-            print(f"  Predicted answer: {predicted_text}")
+                input_text = tokenizer.decode(input_ids)
+                input_text = input_text.replace("<pad>", "")
+                print(f"  Input: {input_text}")
+                print(f"  Annotated answer: {given_text}")
+                print(f"  Predicted answer: {predicted_text}")
 
             predicted_answers.append(
                 {"id": str(example_id), "prediction_text": predicted_text}
@@ -431,7 +448,27 @@ def test_data():
     metric_output = squad_metric.compute(
         predictions=predicted_answers, references=given_answers
     )
-    print(metric_output)
+
+    if verbose:
+        print(metric_output)
+
+    return metric_output
+
+
+def test_data():
+    model = QuestionAnsweringModel()
+
+    dm = AmazonReviewQADataModule(
+        file_path="data/sample.json", tokenizer=model.tokenizer, verbose=False
+    )
+    dm.setup()
+    dm.prepare_data()
+
+    print("Making predictions...")
+    trainer = pl.Trainer(max_epochs=1, accelerator="gpu", devices=1)
+    predictions = trainer.predict(model, dm)
+
+    compute_metrics(predictions, model.tokenizer, verbose=True)
 
     pass
 
