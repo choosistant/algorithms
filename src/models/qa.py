@@ -75,7 +75,15 @@ class QuestionAnsweringPostProcessor:
             # We need to use the floor division // and modulus % operations
             # to get the start_index and end_index.
             pred_answer_start = max_index // scores.shape[1]
-            pred_answer_end = max_index % scores.shape[1]
+
+            # If the answer is not in the context, the start_index will be 0.
+            # In this case, we set the end_index to 0 as well.
+            if pred_answer_start == 0:
+                pred_answer_end = 0
+            else:
+                pred_answer_end = max_index % scores.shape[1]
+
+            # Find the prediction score.
             pred_score = scores[pred_answer_start, pred_answer_end].item()
 
             # Get the given labels for the item.
