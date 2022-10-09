@@ -1,5 +1,2 @@
 [virtualenvs]
 in-project = true
-torch = [{url ="https://download.pytorch.org/whl/cpu/torch-1.12.1-cp310-none-macosx_10_9_x86_64.whl"},
-    {url ="https://download.pytorch.org/whl/cpu/torch-1.12.1-cp37-none-macosx_10_9_x86_64.whl"},
-    {url ="https://download.pytorch.org/whl/cpu/torch-1.12.1-cp38-none-macosx_10_9_x86_64.whl"}]
