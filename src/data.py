@@ -469,7 +469,7 @@ def test_data():
     dm.prepare_data()
 
     print("Making predictions...")
-    trainer = pl.Trainer(max_epochs=1, accelerator="gpu", devices=1)
+    trainer = pl.Trainer(max_epochs=1, accelerator="cpu", devices=1)
     predictions = trainer.predict(model, dm)
 
     compute_metrics(predictions, model.tokenizer, verbose=True)

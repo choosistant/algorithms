@@ -1085,7 +1085,7 @@ python-versions = ">=3.7"
 
 [[package]]
 name = "torch"
-version = "1.12.1+cu116"
+version = "1.12.1"
 description = "Tensors and Dynamic neural networks in Python with strong GPU acceleration"
 category = "main"
 optional = false
@@ -1095,9 +1095,8 @@ python-versions = ">=3.7.0"
 typing-extensions = "*"
 
 [package.source]
-type = "legacy"
-url = "https://download.pytorch.org/whl/cu116"
-reference = "torch"
+type = "url"
+url = "https://download.pytorch.org/whl/cpu/torch-1.12.1-cp38-none-macosx_10_9_x86_64.whl"
 
 [[package]]
 name = "torchmetrics"
@@ -1348,7 +1347,7 @@ testing = ["func-timeout", "jaraco.itertools", "pytest (>=6)", "pytest-black (>=
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.8"
-content-hash = "57fce9b95f9727eee09c0909649573c0ffceca1e547492683c288ac6b708ee46"
+content-hash = "fbe58540ab2d211310b1e6b81ee02e3c099b3832a9a83af7ca1d2417b4213a07"
 
 [metadata.files]
 absl-py = [
@@ -2399,16 +2398,7 @@ tomli = [
     {file = "tomli-2.0.1-py3-none-any.whl", hash = "sha256:939de3e7a6161af0c887ef91b7d41a53e7c5a1ca976325f429cb46ea9bc30ecc"},
     {file = "tomli-2.0.1.tar.gz", hash = "sha256:de526c12914f0c550d15924c62d72abc48d6fe7364aa87328337a31007fe8a4f"},
 ]
-torch = [
-    {file = "torch-1.12.1+cu116-cp310-cp310-linux_x86_64.whl", hash = "sha256:b6bc31244aa2818929fbb30c483c221df471e9d856e805c5a1ff72b131ae9e7b"},
-    {file = "torch-1.12.1+cu116-cp310-cp310-win_amd64.whl", hash = "sha256:832effad8b21109700323a5aa137a2e4bdea711dac3d8491ff542f798dab0101"},
-    {file = "torch-1.12.1+cu116-cp37-cp37m-linux_x86_64.whl", hash = "sha256:fc9b4786ec54be67eaa8b0c7c9999e2f4ae2b89a1c18e41de1515a190440c691"},
-    {file = "torch-1.12.1+cu116-cp37-cp37m-win_amd64.whl", hash = "sha256:bca5a77071d7eb901beb775648b125e6d9279f231d1f23e56530b5a189df8975"},
-    {file = "torch-1.12.1+cu116-cp38-cp38-linux_x86_64.whl", hash = "sha256:dda312901220895087cc83d3665464a3dc171d04460c61c31af463efbfb54896"},
-    {file = "torch-1.12.1+cu116-cp38-cp38-win_amd64.whl", hash = "sha256:b8e8906e770bcad12e67c269e1bcdd7661a8abd96519a4ba643e86440bbcc1bf"},
-    {file = "torch-1.12.1+cu116-cp39-cp39-linux_x86_64.whl", hash = "sha256:7725420dabebfcaf44984edce3283eea91f98f0f7d5874bc68c7a164bd8126e3"},
-    {file = "torch-1.12.1+cu116-cp39-cp39-win_amd64.whl", hash = "sha256:84f031e4ee25d95368d7531aa58e79da9808d3fa53b4b363ea03a2450b6fd0af"},
-]
+torch = []
 torchmetrics = [
     {file = "torchmetrics-0.10.0-py3-none-any.whl", hash = "sha256:1e99ee7379f8ff7e383383513ae0594bc5424de83b43e36c6ce12d464f1635b9"},
     {file = "torchmetrics-0.10.0.tar.gz", hash = "sha256:990bafc7f76d7442894533771d0ba7492dbca2bbf2989fb32de7e9c68eb3d133"},
