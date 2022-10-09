@@ -371,6 +371,10 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
     def _parse_annoted_examples(self) -> List[AnnotatedExample]:
         with open(self._file_path, "r") as f:
             items = json.load(f)
+            for i in items:
+                print(i)
+                print(type(i))
+            exit(1)
             return [self._parse_annotated_example(item) for item in items]
 
     def _parse_annotated_example(self, exported_annotation_item) -> AnnotatedExample:

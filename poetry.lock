@@ -1094,10 +1094,6 @@ python-versions = ">=3.7.0"
 [package.dependencies]
 typing-extensions = "*"
 
-[package.source]
-type = "url"
-url = "https://download.pytorch.org/whl/cpu/torch-1.12.1-cp38-none-macosx_10_9_x86_64.whl"
-
 [[package]]
 name = "torchmetrics"
 version = "0.10.0"
