@@ -1,5 +1,6 @@
 import json
 import random
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -8,7 +9,7 @@ from typing import List
 import torch
 from fastapi import FastAPI
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from torch.utils.data import DataLoader
 
 from src.data import QuestionAnsweringInputEncoder, QuestionAnsweringModelInput
@@ -72,8 +73,15 @@ class PredictRequest(BaseModel):
     url: str
     review_text: str
 
+    @validator("review_text")
+    def review_text_must_not_be_empty(cls, val: str):
+        if val is None or len(val.strip()) == 0:
+            raise ValueError("review_text must not be empty")
+        return val
+
 
 class PredictResponse(BaseModel):
+    id: str
     segments: List[str]
     labels: List[str]
     scores: List[float]
@@ -121,8 +129,12 @@ def predict(request: PredictRequest):
     end_time = datetime.now()
     inference_time_ms = (end_time - start_time).total_seconds() * 1000
 
+    # Generate a unique ID for this prediction for tracking purposes.
+    prediction_id = uuid.uuid4().hex
+
     # construct the data to be logged
     log_info = {
+        "prediction_id": prediction_id,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "request": request.dict(),
         "predictions": [o.to_dict() for o in predictions],
@@ -134,6 +146,7 @@ def predict(request: PredictRequest):
 
     # construct response
     return PredictResponse(
+        id=prediction_id,
         segments=[pred.segment for pred in predictions],
         labels=[pred.label for pred in predictions],
         scores=[pred.score for pred in predictions],
