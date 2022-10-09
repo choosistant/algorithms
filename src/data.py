@@ -281,7 +281,6 @@ class AmazonReviewQADataModule(pl.LightningDataModule):
 
     def prepare_data(self) -> None:
         examples = self._parse_annoted_examples()
-
         if self._verbose:
             print(f"Found {len(examples)} examples.")
 
@@ -470,7 +469,7 @@ def test_data():
 
     print("Making predictions...")
     trainer = pl.Trainer(max_epochs=1, accelerator="cpu", devices=1)
-    predictions = trainer.predict(model, dm)
+    predictions = trainer.test(model, dm)
 
     compute_metrics(predictions, model.tokenizer, verbose=True)
 

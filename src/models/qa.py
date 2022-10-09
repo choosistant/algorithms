@@ -144,6 +144,7 @@ class QuestionAnsweringModel(pl.LightningModule):
         return {"val_loss": loss}
 
     def test_step(self, batch, batch_idx):
+        print(batch)
         outputs = self.forward(batch)
         pred_answer_start = torch.argmax(outputs.start_logits, dim=1)
         pred_answer_end = torch.argmax(outputs.end_logits, dim=1)

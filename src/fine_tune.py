@@ -6,7 +6,7 @@ from src.models.qa import QuestionAnsweringModel
 
 
 def fine_tune_model():
-    model = QuestionAnsweringModel()
+    model = QuestionAnsweringModel(qa_model_name='bert-base-cased')
 
     dm = AmazonReviewQADataModule(
         file_path="data/sample.json",
