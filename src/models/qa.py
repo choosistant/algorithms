@@ -31,8 +31,8 @@ class QuestionAnsweringPostProcessor:
         model_output: QuestionAnsweringModelOutput,
     ) -> None:
         for j in range(len(model_input["example_ids"])):
-            start_logits = model_output.start_logits[[j], :]
-            end_logits = model_output.end_logits[[j], :]
+            start_logits = model_output.start_logits[[j], :].to("cpu")
+            end_logits = model_output.end_logits[[j], :].to("cpu")
 
             # The input to the model is:
             #   ```
@@ -49,10 +49,12 @@ class QuestionAnsweringPostProcessor:
             # the answer is not in the context.
             non_context_mask[0][0] = False
 
+            neg_inf = torch.tensor(-float("inf")).to("cpu")
+
             # Mask the logits that are not part of the context because
             # we only want to consider the logits for the context.
-            start_logits.masked_fill_(non_context_mask, -float("inf"))
-            end_logits.masked_fill_(non_context_mask, -float("inf"))
+            start_logits.masked_fill_(non_context_mask, neg_inf)
+            end_logits.masked_fill_(non_context_mask, neg_inf)
 
             # Apply softmax to convert the logits to probabilities.
             start_probabilities = torch.nn.functional.softmax(start_logits, dim=-1)[0]
@@ -90,8 +92,8 @@ class QuestionAnsweringPostProcessor:
             pred_score = scores[pred_answer_start, pred_answer_end].item()
 
             # Get the given labels for the item.
-            given_answer_start = model_input["start_positions"][j].item()
-            given_answer_end = model_input["end_positions"][j].item()
+            given_answer_start = model_input["start_positions"][j].to("cpu").item()
+            given_answer_end = model_input["end_positions"][j].to("cpu").item()
 
             input_ids = model_input["input_ids"][j]
 
@@ -175,10 +177,18 @@ class QuestionAnsweringModel(pl.LightningModule):
         post_processor.process_batch(model_input=batch, model_output=model_output)
         return post_processor.get_results()
 
-    def predict_all(self, data_loader) -> Dict[str, list]:
+    def predict_all(self, data_loader, inference_device) -> Dict[str, list]:
+        self.model.to(inference_device)
         post_processor = QuestionAnsweringPostProcessor(tokenizer=self.tokenizer)
         for batch in data_loader:
-            model_output = self.forward(batch)
+            with torch.no_grad():
+                batch_on_device = {
+                    "input_ids": batch["input_ids"].to(inference_device),
+                    "attention_mask": batch["attention_mask"].to(inference_device),
+                    "start_positions": batch["start_positions"].to(inference_device),
+                    "end_positions": batch["end_positions"].to(inference_device),
+                }
+                model_output = self.forward(batch_on_device)
             post_processor.process_batch(model_input=batch, model_output=model_output)
         return post_processor.get_results()
 
