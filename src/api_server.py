@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 import torch
 from fastapi import FastAPI
@@ -54,19 +54,27 @@ class BenefitsAndDrawbacksExtractor:
         )
 
         results = self._model.predict_all(data_loader=data_loader)
+        labeled_segments = self._convert_labeled_segments(results=results)
+        return labeled_segments
 
-        labels = ["benefit"] * 3 + ["drawback"] * 3
-        output = []
-        for i in range(len(labels)):
-            output.append(
-                LabeledSegment(
-                    segment=results["pred_answer"][i].strip(),
-                    label=labels[i],
-                    score=results["pred_score"][i],
+    def _convert_labeled_segments(
+        self, results: Dict[str, list]
+    ) -> List[LabeledSegment]:
+        output_dict = {}
+        for i in range(len(results["pred_answer"])):
+            answer = results["pred_answer"][i].strip()
+            label = results["label"][i]
+            score = results["pred_score"][i]
+            if len(answer) > 0:
+                output_key = f"{label}:{answer}"
+                print(f"Searched for {output_key}")
+                if output_key in output_dict:
+                    if output_dict[output_key].score >= score:
+                        continue
+                output_dict[output_key] = LabeledSegment(
+                    segment=answer, label=label, score=score
                 )
-            )
-
-        return output
+        return list(output_dict.values())
 
 
 class PredictRequest(BaseModel):
