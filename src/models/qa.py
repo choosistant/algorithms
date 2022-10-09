@@ -6,6 +6,8 @@ import torch
 from transformers import AutoModelForQuestionAnswering, AutoTokenizer
 from transformers.modeling_outputs import QuestionAnsweringModelOutput
 
+LABEL_ID_MAP = {0: "benefit", 1: "drawback"}
+
 
 class QuestionAnsweringPostProcessor:
     def __init__(self, tokenizer) -> None:
@@ -20,6 +22,7 @@ class QuestionAnsweringPostProcessor:
             "pred_answer_end": [],
             "pred_score": [],
             "pred_answer": [],
+            "label": [],
         }
 
     def process_batch(
@@ -99,6 +102,9 @@ class QuestionAnsweringPostProcessor:
                 input_ids[given_answer_start:given_answer_end]
             )
 
+            label_id = model_input["label_ids"][j].item()
+            label = LABEL_ID_MAP[label_id]
+
             # Append the results to the list.
             self._predict_results["example_id"].append(
                 model_input["example_ids"][j].item()
@@ -111,6 +117,7 @@ class QuestionAnsweringPostProcessor:
             self._predict_results["pred_answer_end"].append(pred_answer_end)
             self._predict_results["pred_score"].append(pred_score)
             self._predict_results["pred_answer"].append(predicted_text)
+            self._predict_results["label"].append(label)
 
     def get_results(self):
         return self._predict_results

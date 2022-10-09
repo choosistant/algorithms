@@ -1,14 +1,15 @@
 import json
 import random
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 import torch
 from fastapi import FastAPI
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from torch.utils.data import DataLoader
 
 from src.data import QuestionAnsweringInputEncoder, QuestionAnsweringModelInput
@@ -53,27 +54,42 @@ class BenefitsAndDrawbacksExtractor:
         )
 
         results = self._model.predict_all(data_loader=data_loader)
+        labeled_segments = self._convert_labeled_segments(results=results)
+        return labeled_segments
 
-        labels = ["benefit"] * 3 + ["drawback"] * 3
-        output = []
-        for i in range(len(labels)):
-            output.append(
-                LabeledSegment(
-                    segment=results["pred_answer"][i].strip(),
-                    label=labels[i],
-                    score=results["pred_score"][i],
+    def _convert_labeled_segments(
+        self, results: Dict[str, list]
+    ) -> List[LabeledSegment]:
+        output_dict = {}
+        for i in range(len(results["pred_answer"])):
+            answer = results["pred_answer"][i].strip()
+            label = results["label"][i]
+            score = results["pred_score"][i]
+            if len(answer) > 0:
+                output_key = f"{label}:{answer}"
+                print(f"Searched for {output_key}")
+                if output_key in output_dict:
+                    if output_dict[output_key].score >= score:
+                        continue
+                output_dict[output_key] = LabeledSegment(
+                    segment=answer, label=label, score=score
                 )
-            )
-
-        return output
+        return list(output_dict.values())
 
 
 class PredictRequest(BaseModel):
     url: str
     review_text: str
 
+    @validator("review_text")
+    def review_text_must_not_be_empty(cls, val: str):
+        if val is None or len(val.strip()) == 0:
+            raise ValueError("review_text must not be empty")
+        return val
+
 
 class PredictResponse(BaseModel):
+    id: str
     segments: List[str]
     labels: List[str]
     scores: List[float]
@@ -121,8 +137,12 @@ def predict(request: PredictRequest):
     end_time = datetime.now()
     inference_time_ms = (end_time - start_time).total_seconds() * 1000
 
+    # Generate a unique ID for this prediction for tracking purposes.
+    prediction_id = uuid.uuid4().hex
+
     # construct the data to be logged
     log_info = {
+        "prediction_id": prediction_id,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "request": request.dict(),
         "predictions": [o.to_dict() for o in predictions],
@@ -134,6 +154,7 @@ def predict(request: PredictRequest):
 
     # construct response
     return PredictResponse(
+        id=prediction_id,
         segments=[pred.segment for pred in predictions],
         labels=[pred.label for pred in predictions],
         scores=[pred.score for pred in predictions],

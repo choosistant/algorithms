@@ -15,6 +15,8 @@ from src.models.qa import QuestionAnsweringModel
 
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
+LABEL_ID_MAP = {"benefit": 0, "drawback": 1}
+
 
 @dataclass
 class AnnotatedTextSegment:
@@ -53,6 +55,8 @@ class AmazonReviewQADataset(Dataset):
 @dataclass(frozen=True)
 class QuestionAnsweringModelInput(dict):
     example_ids: torch.Tensor
+    question_indices: torch.tensor
+    label_ids: torch.Tensor
     input_ids: torch.tensor
     attention_mask: torch.tensor
     context_mask: torch.tensor
@@ -61,6 +65,14 @@ class QuestionAnsweringModelInput(dict):
 
     def to_dict(self):
         return self.__dict__
+
+    @property
+    def labels(self) -> List[str]:
+        return [LABEL_ID_MAP[x] for x in self.label_ids]
+
+    @staticmethod
+    def decode_label_id(label_id: int) -> str:
+        return LABEL_ID_MAP[label_id]
 
 
 class QuestionAnsweringInputEncoder:
@@ -122,7 +134,9 @@ class QuestionAnsweringInputEncoder:
                 encoded_inputs = self._encode_qa_input(
                     context=input_text,
                     question=question,
+                    question_id=q_idx,
                     answer_ranges=answer_range_for_question,
+                    label_id=LABEL_ID_MAP[label_val],
                     example_id=example_id,
                 )
                 assert len(encoded_inputs) >= 1
@@ -134,6 +148,8 @@ class QuestionAnsweringInputEncoder:
         self,
         context: str,
         question: str,
+        question_id: int,
+        label_id: int,
         answer_ranges: List[Tuple[int, int]],
         example_id: Optional[int] = None,
     ) -> List[QuestionAnsweringModelInput]:
@@ -175,6 +191,8 @@ class QuestionAnsweringInputEncoder:
                 encoded_qa_inputs.append(
                     QuestionAnsweringModelInput(
                         example_ids=torch.tensor([example_id]),
+                        question_indices=torch.tensor([question_id]),
+                        label_ids=torch.tensor([label_id]),
                         input_ids=input_ids,
                         attention_mask=attention_masks,
                         context_mask=context_mask,
@@ -196,6 +214,8 @@ class QuestionAnsweringInputEncoder:
                     encoded_qa_inputs.append(
                         QuestionAnsweringModelInput(
                             example_ids=torch.tensor([example_id]),
+                            question_indices=torch.tensor([question_id]),
+                            label_ids=torch.tensor([label_id]),
                             input_ids=input_ids,
                             attention_mask=attention_masks,
                             context_mask=context_mask,
@@ -216,6 +236,8 @@ class QuestionAnsweringInputEncoder:
                     encoded_qa_inputs.append(
                         QuestionAnsweringModelInput(
                             example_ids=torch.tensor([example_id]),
+                            question_indices=torch.tensor([question_id]),
+                            label_ids=torch.tensor([label_id]),
                             input_ids=input_ids,
                             attention_mask=attention_masks,
                             context_mask=context_mask,
