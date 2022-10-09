@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 
 from src.data import QuestionAnsweringInputEncoder, QuestionAnsweringModelInput
 from src.models.qa import QuestionAnsweringModel
+from src.stop_watch import time_block
 
 
 @dataclass
@@ -42,9 +43,11 @@ class BenefitsAndDrawbacksExtractor:
 
     def predict(self, document: str) -> List[LabeledSegment]:
         example_id = random.getrandbits(32)
-        encoded_inputs: List[QuestionAnsweringModelInput] = self._encoder.encode(
-            input_text=document, example_id=example_id
-        )
+
+        with time_block("Took {:0.2f} seconds to encode"):
+            encoded_inputs: List[QuestionAnsweringModelInput] = self._encoder.encode(
+                input_text=document, example_id=example_id
+            )
         data_loader = DataLoader(
             dataset=[item.to_dict() for item in encoded_inputs],
             batch_size=self._batch_size,
@@ -53,8 +56,14 @@ class BenefitsAndDrawbacksExtractor:
             shuffle=False,
         )
 
-        results = self._model.predict_all(data_loader=data_loader)
-        labeled_segments = self._convert_labeled_segments(results=results)
+        with time_block("Took {:0.2f} seconds make predictions"):
+            results = self._model.predict_all(
+                data_loader=data_loader,
+                inference_device=torch.device("cuda:0"),
+            )
+
+        with time_block("Took {:0.2f} seconds to convert labels"):
+            labeled_segments = self._convert_labeled_segments(results=results)
         return labeled_segments
 
     def _convert_labeled_segments(
@@ -67,7 +76,6 @@ class BenefitsAndDrawbacksExtractor:
             score = results["pred_score"][i]
             if len(answer) > 0:
                 output_key = f"{label}:{answer}"
-                print(f"Searched for {output_key}")
                 if output_key in output_dict:
                     if output_dict[output_key].score >= score:
                         continue
