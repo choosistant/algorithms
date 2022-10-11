@@ -1,5 +1,4 @@
 import json
-import random
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -10,84 +9,23 @@ import torch
 from fastapi import FastAPI
 from loguru import logger
 from pydantic import BaseModel, validator
-from torch.utils.data import DataLoader
 
-from src.data import QuestionAnsweringInputEncoder, QuestionAnsweringModelInput
-from src.models.qa import QuestionAnsweringModel
-from src.stop_watch import time_block
+from src.model_extractors import BenefitsAndDrawbacksExtractor
 
 
 @dataclass
 class ApiServerConfig:
     prediction_log_path: str = "./data/logs/predictions/logs.jsonl"
     api_log_path: str = "./data/logs/api/logs.txt"
-    model_name: str = "choosistant/qa-model"
+    model_qa: str = "choosistant/qa-model"
+    model_seq2seq: str = "choosistant/seq2seqmodel"
     batch_size: int = 8
-
-
-@dataclass
-class LabeledSegment:
-    segment: str
-    label: str
-    score: float
-
-    def to_dict(self):
-        return self.__dict__
-
-
-class BenefitsAndDrawbacksExtractor:
-    def __init__(self, model_name: str, batch_size: int) -> None:
-        self._model = QuestionAnsweringModel(qa_model_name=model_name)
-        self._encoder = QuestionAnsweringInputEncoder(self._model.tokenizer)
-        self._batch_size = batch_size
-
-    def predict(self, document: str) -> List[LabeledSegment]:
-        example_id = random.getrandbits(32)
-
-        with time_block("Took {:0.2f} seconds to encode"):
-            encoded_inputs: List[QuestionAnsweringModelInput] = self._encoder.encode(
-                input_text=document, example_id=example_id
-            )
-        data_loader = DataLoader(
-            dataset=[item.to_dict() for item in encoded_inputs],
-            batch_size=self._batch_size,
-            num_workers=2,
-            pin_memory=True,
-            shuffle=False,
-        )
-
-        with time_block("Took {:0.2f} seconds make predictions"):
-            results = self._model.predict_all(
-                data_loader=data_loader,
-                inference_device=torch.device("cuda:0"),
-            )
-
-        with time_block("Took {:0.2f} seconds to convert labels"):
-            labeled_segments = self._convert_labeled_segments(results=results)
-        return labeled_segments
-
-    def _convert_labeled_segments(
-        self, results: Dict[str, list]
-    ) -> List[LabeledSegment]:
-        output_dict = {}
-        for i in range(len(results["pred_answer"])):
-            answer = results["pred_answer"][i].strip()
-            label = results["label"][i]
-            score = results["pred_score"][i]
-            if len(answer) > 0:
-                output_key = f"{label}:{answer}"
-                if output_key in output_dict:
-                    if output_dict[output_key].score >= score:
-                        continue
-                output_dict[output_key] = LabeledSegment(
-                    segment=answer, label=label, score=score
-                )
-        return list(output_dict.values())
 
 
 class PredictRequest(BaseModel):
     url: str
     review_text: str
+    model_type: int
 
     @validator("review_text")
     def review_text_must_not_be_empty(cls, val: str):
@@ -115,8 +53,9 @@ def startup_event():
     logger.info("Starting API server")
 
     classifier = BenefitsAndDrawbacksExtractor(
-        model_name=cnf.model_name,
+        model_qa=cnf.model_qa,
         batch_size=cnf.batch_size,
+        model_seq2seq=cnf.model_seq2seq
     )
 
     # Ensure parent directories exist.
@@ -141,7 +80,8 @@ def read_root():
 def predict(request: PredictRequest):
     # get model prediction for the input request
     start_time = datetime.now()
-    predictions = classifier.predict(request.review_text)
+    predictions = classifier.predict(request.review_text) if request.model_type == 1\
+        else classifier.predict_seq2seq(request.review_text)
     end_time = datetime.now()
     inference_time_ms = (end_time - start_time).total_seconds() * 1000
 
