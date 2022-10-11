@@ -55,7 +55,7 @@ def startup_event():
     classifier = BenefitsAndDrawbacksExtractor(
         model_qa=cnf.model_qa,
         batch_size=cnf.batch_size,
-        model_seq2seq=cnf.model_seq2seq
+        model_seq2seq=cnf.model_seq2seq,
     )
 
     # Ensure parent directories exist.
@@ -80,8 +80,11 @@ def read_root():
 def predict(request: PredictRequest):
     # get model prediction for the input request
     start_time = datetime.now()
-    predictions = classifier.predict(request.review_text) if request.model_type == 1\
+    predictions = (
+        classifier.predict(request.review_text)
+        if request.model_type == 1
         else classifier.predict_seq2seq(request.review_text)
+    )
     end_time = datetime.now()
     inference_time_ms = (end_time - start_time).total_seconds() * 1000
 

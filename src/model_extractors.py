@@ -1,14 +1,15 @@
+import random
+from dataclasses import dataclass
+from typing import Dict, List
+
+import torch
+from simpletransformers.seq2seq import Seq2SeqArgs, Seq2SeqModel
+from torch.utils.data import DataLoader
+from transformers import AutoModel
+
 from src.data import QuestionAnsweringInputEncoder, QuestionAnsweringModelInput
 from src.models.qa import QuestionAnsweringModel
 from src.stop_watch import time_block
-import random
-from typing import Dict, List
-from dataclasses import dataclass
-import torch
-
-from simpletransformers.seq2seq import Seq2SeqModel,Seq2SeqArgs
-from transformers import AutoModel
-from torch.utils.data import DataLoader
 
 
 @dataclass
@@ -83,14 +84,12 @@ class BenefitsAndDrawbacksExtractor:
         return model
 
     def predict_seq2seq(self, document: str) -> List[LabeledSegment]:
+        example_id = random.getrandbits(32)
         model = self._init_seq2seq()
 
         with time_block("Took {:0.2f} seconds make seq2seq predictions"):
             results = model.predict([document])
-        output_dict = LabeledSegment(segment=results, label=["benefits"], score=0.0)
+        output_dict = LabeledSegment(
+            id=example_id, segment=results, label=["benefits"], score=0.0
+        )
         return list(output_dict.values())
-
-
-
-
-
