@@ -83,12 +83,11 @@ class BenefitsAndDrawbacksExtractor:
         return model
 
     def predict_seq2seq(self, document: str) -> List[LabeledSegment]:
-        example_id = random.getrandbits(32)
-        model = self._init_seq2seq(self)
+        model = self._init_seq2seq()
 
         with time_block("Took {:0.2f} seconds make seq2seq predictions"):
             results = model.predict([document])
-        output_dict = LabeledSegment(id=example_id, segment=results, label=["benefits"], score=0.0)
+        output_dict = LabeledSegment(segment=results, label=["benefits"], score=0.0)
         return list(output_dict.values())
 
 
