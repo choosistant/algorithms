@@ -14,8 +14,8 @@ from src.model_extractors import QuestionAnsweringPredictor, Seq2SeqPredictor, P
 
 
 PREDICTORS: Dict[str, Predictor] = {
-    "qa": classifier_qa,
-    "seq2seq": classifier_seq2seq,
+    "qa": None,
+    "seq2seq": None,
 }
 
 @dataclass
@@ -38,7 +38,7 @@ class PredictRequest(BaseModel):
             raise ValueError("review_text must not be empty")
         return val
 
-    @validator("model_type")
+    @validator("model_type_must_know")
     def model_type_(cls, val: str):
         if val not in PREDICTORS:
             raise ValueError(f"model_type must be one of {PREDICTORS.keys()}")
@@ -65,16 +65,12 @@ def startup_event():
     logger.add(cnf.api_log_path, rotation="1 day", retention="7 days")
     logger.info("Starting API server")
 
-    classifier_qa = QuestionAnsweringPredictor(
-        qa_model_name=cnf.model_name_qa,
-        batch_size=cnf.batch_size,
-        cuda_device_no = 1
+    PREDICTORS["qa"] = QuestionAnsweringPredictor(
+        qa_model_name=cnf.model_name_qa, batch_size=cnf.batch_size, cuda_device_no=0
     )
-    classifier_seq2seq = Seq2SeqPredictor(
-        model_name_seq2seq = cnf.model_name_seq2seq,
-        cuda_device_no = 1
+    PREDICTORS["seq2seq"] = Seq2SeqPredictor(
+        model_name_seq2seq=cnf.model_name_seq2seq, cuda_device_no=0
     )
-
 
     # Ensure parent directories exist.
     Path(cnf.prediction_log_path).parent.mkdir(parents=True, exist_ok=True)
