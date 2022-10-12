@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from loguru import logger
 from pydantic import BaseModel, validator
 
-from src.model_extractors import QuestionAnsweringPredictor, Seq2SeqPredictor, Predictor
+from src.model_extractors import Predictor, QuestionAnsweringPredictor, Seq2SeqPredictor
 
 
 PREDICTORS: Dict[str, Predictor] = {
@@ -58,8 +58,6 @@ cnf = ApiServerConfig()
 
 @app.on_event("startup")
 def startup_event():
-    global classifier_qa
-    global classifier_seq2seq
     global prediction_log_file
 
     logger.add(cnf.api_log_path, rotation="1 day", retention="7 days")
