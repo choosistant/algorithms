@@ -3,34 +3,45 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Protocol
 
 import torch
 from fastapi import FastAPI
 from loguru import logger
 from pydantic import BaseModel, validator
 
-from src.model_extractors import BenefitsAndDrawbacksExtractor
+from src.model_extractors import QuestionAnsweringPredictor, Seq2SeqPredictor, Predictor
 
+
+PREDICTORS: Dict[str, Predictor] = {
+    "qa": classifier_qa,
+    "seq2seq": classifier_seq2seq,
+}
 
 @dataclass
 class ApiServerConfig:
     prediction_log_path: str = "./data/logs/predictions/logs.jsonl"
     api_log_path: str = "./data/logs/api/logs.txt"
-    model_qa: str = "choosistant/qa-model"
-    model_seq2seq: str = "choosistant/seq2seqmodel"
+    model_name_qa: str = "choosistant/qa-model"
+    model_name_seq2seq: str = "choosistant/seq2seqmodel"
     batch_size: int = 8
 
 
 class PredictRequest(BaseModel):
     url: str
     review_text: str
-    model_type: int
+    model_type: str
 
     @validator("review_text")
     def review_text_must_not_be_empty(cls, val: str):
         if val is None or len(val.strip()) == 0:
             raise ValueError("review_text must not be empty")
+        return val
+
+    @validator("model_type")
+    def model_type_(cls, val: str):
+        if val not in PREDICTORS:
+            raise ValueError(f"model_type must be one of {PREDICTORS.keys()}")
         return val
 
 
@@ -47,16 +58,23 @@ cnf = ApiServerConfig()
 
 @app.on_event("startup")
 def startup_event():
-    global classifier
+    global classifier_qa
+    global classifier_seq2seq
     global prediction_log_file
+
     logger.add(cnf.api_log_path, rotation="1 day", retention="7 days")
     logger.info("Starting API server")
 
-    classifier = BenefitsAndDrawbacksExtractor(
-        model_qa=cnf.model_qa,
+    classifier_qa = QuestionAnsweringPredictor(
+        qa_model_name=cnf.model_name_qa,
         batch_size=cnf.batch_size,
-        model_seq2seq=cnf.model_seq2seq,
+        cuda_device_no = 1
     )
+    classifier_seq2seq = Seq2SeqPredictor(
+        model_name_seq2seq = cnf.model_name_seq2seq,
+        cuda_device_no = 1
+    )
+
 
     # Ensure parent directories exist.
     Path(cnf.prediction_log_path).parent.mkdir(parents=True, exist_ok=True)
@@ -80,11 +98,8 @@ def read_root():
 def predict(request: PredictRequest):
     # get model prediction for the input request
     start_time = datetime.now()
-    predictions = (
-        classifier.predict(request.review_text)
-        if request.model_type == 1
-        else classifier.predict_seq2seq(request.review_text)
-    )
+    predictor = PREDICTORS[request.model_type]
+    predictions = predictor.predict(request.review_text)
     end_time = datetime.now()
     inference_time_ms = (end_time - start_time).total_seconds() * 1000
 

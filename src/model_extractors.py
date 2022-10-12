@@ -1,6 +1,6 @@
 import random
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Protocol
 
 import torch
 from simpletransformers.seq2seq import Seq2SeqArgs, Seq2SeqModel
@@ -22,12 +22,12 @@ class LabeledSegment:
         return self.__dict__
 
 
-class BenefitsAndDrawbacksExtractor:
-    def __init__(self, model_qa: str, batch_size: int, model_seq2seq: str) -> None:
-        self._qa_model = QuestionAnsweringModel(qa_model_name=model_qa)
-        self._seq2seq_model = AutoModel.from_pretrained(model_seq2seq)
-        self._encoder = QuestionAnsweringInputEncoder(self._qa_model.tokenizer)
+class QuestionAnsweringPredictor:
+    def __init__(self, qa_model_name: str, batch_size: int, cuda_device_no: int) -> None:
+        self._model = QuestionAnsweringModel(qa_model_name=qa_model_name)
+        self._encoder = QuestionAnsweringInputEncoder(self._model.tokenizer)
         self._batch_size = batch_size
+        self._cuda_device_no = cuda_device_no
 
     def predict(self, document: str) -> List[LabeledSegment]:
         example_id = random.getrandbits(32)
@@ -47,7 +47,7 @@ class BenefitsAndDrawbacksExtractor:
         with time_block("Took {:0.2f} seconds make predictions"):
             results = self._model.predict_all(
                 data_loader=data_loader,
-                inference_device=torch.device("cuda:0"),
+                inference_device=torch.device(f"cuda:{self._cuda_device_no}"),
             )
 
         with time_block("Took {:0.2f} seconds to convert labels"):
@@ -72,24 +72,42 @@ class BenefitsAndDrawbacksExtractor:
                 )
         return list(output_dict.values())
 
-    def _init_seq2seq(self):
+
+class Seq2SeqPredictor:
+    """A seq2seq model that predicts labels for segments of text."""
+    def __init__(
+        self,
+        model_name_seq2seq: str,
+        cuda_device_no: int,
+        encoder_decoder_type: str="bart",
+        encoder_decoder_name: str="facebook/bart-large",
+    ) -> None:
+        self._backbone_model = AutoModel.from_pretrained(model_name_seq2seq)
         model_args = Seq2SeqArgs()
-        model = Seq2SeqModel(
-            encoder_decoder_type="bart",
-            encoder_decoder_name="facebook/bart-large",
+        self._model = Seq2SeqModel(
+            encoder_decoder_type=encoder_decoder_type,
+            encoder_decoder_name=encoder_decoder_name,
             args=model_args,
-            model=self._seq2seq_model,
-            use_cuda=False,
+            model=self._backbone_model,
+            use_cuda=True,
+            cuda_device=cuda_device_no,
         )
-        return model
 
-    def predict_seq2seq(self, document: str) -> List[LabeledSegment]:
-        example_id = random.getrandbits(32)
-        model = self._init_seq2seq()
-
+    def predict(self, document: str) -> List[LabeledSegment]:
         with time_block("Took {:0.2f} seconds make seq2seq predictions"):
-            results = model.predict([document])
-        output_dict = LabeledSegment(
-            id=example_id, segment=results, label=["benefits"], score=0.0
-        )
-        return list(output_dict.values())
+            results = self._model.predict([document])
+            print(f"Output from seq2seq model: {results}")
+        return [
+            LabeledSegment(
+                segment=pred,
+                label="benefit",
+                score=0.0
+            )
+            for pred in results
+        ]
+
+
+class Predictor(Protocol):
+    """An interface for a model that can predict labels for segments of text."""
+    def predict(self, document: str) -> List[LabeledSegment]:
+        ...
