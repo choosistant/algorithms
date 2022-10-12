@@ -12,11 +12,11 @@ from pydantic import BaseModel, validator
 
 from src.model_extractors import Predictor, QuestionAnsweringPredictor, Seq2SeqPredictor
 
-
 PREDICTORS: Dict[str, Predictor] = {
     "qa": None,
     "seq2seq": None,
 }
+
 
 @dataclass
 class ApiServerConfig:
