@@ -10,13 +10,13 @@ from fastapi import FastAPI
 from loguru import logger
 from pydantic import BaseModel, validator
 
-from src.model_extractors import QuestionAnsweringPredictor, Seq2SeqPredictor, Predictor
-
+from src.model_extractors import Predictor, QuestionAnsweringPredictor, Seq2SeqPredictor
 
 PREDICTORS: Dict[str, Predictor] = {
     "qa": classifier_qa,
     "seq2seq": classifier_seq2seq,
 }
+
 
 @dataclass
 class ApiServerConfig:
@@ -66,15 +66,11 @@ def startup_event():
     logger.info("Starting API server")
 
     classifier_qa = QuestionAnsweringPredictor(
-        qa_model_name=cnf.model_name_qa,
-        batch_size=cnf.batch_size,
-        cuda_device_no = 1
+        qa_model_name=cnf.model_name_qa, batch_size=cnf.batch_size, cuda_device_no=1
     )
     classifier_seq2seq = Seq2SeqPredictor(
-        model_name_seq2seq = cnf.model_name_seq2seq,
-        cuda_device_no = 1
+        model_name_seq2seq=cnf.model_name_seq2seq, cuda_device_no=1
     )
-
 
     # Ensure parent directories exist.
     Path(cnf.prediction_log_path).parent.mkdir(parents=True, exist_ok=True)
