@@ -3,7 +3,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Protocol
+from typing import Dict, List
 
 import torch
 from fastapi import FastAPI
@@ -38,10 +38,11 @@ class PredictRequest(BaseModel):
             raise ValueError("review_text must not be empty")
         return val
 
-    @validator("model_type_must_know")
-    def model_type_(cls, val: str):
+    @validator("model_type")
+    def model_type_must_be_one_of_known_types(cls, val: str):
         if val not in PREDICTORS:
-            raise ValueError(f"model_type must be one of {PREDICTORS.keys()}")
+            err = f"model_type must be one of types: {list(PREDICTORS.keys())}"
+            raise ValueError(err)
         return val
 
 
