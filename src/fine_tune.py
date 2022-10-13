@@ -10,6 +10,7 @@ from src.models.qa import QuestionAnsweringModel
 def fine_tune_model():
     wandb.login()
     wandb_logger = WandbLogger()
+    # qa_model_name = roberta-base
     model = QuestionAnsweringModel(qa_model_name="bert-base-cased")
     dm = AmazonReviewQADataModule(
         file_path="data/sample.json",

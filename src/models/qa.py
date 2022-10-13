@@ -142,6 +142,7 @@ class QuestionAnsweringModel(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         model_output = self.forward(batch)
         loss = model_output.loss
+        self.log("val_loss", loss)
         return {"val_loss": loss}
 
     def test_step(self, batch, batch_idx):
