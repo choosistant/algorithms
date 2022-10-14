@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from loguru import logger
 from pydantic import BaseModel, validator
 
-from src.model_extractors import Predictor, QuestionAnsweringPredictor, Seq2SeqPredictor
+from src.model_extractors import Predictor, QuestionAnsweringPredictor, QuestionAnsweringPredictorS, Seq2SeqPredictor
 
 PREDICTORS: Dict[str, Predictor] = {
     "qa": None,
@@ -25,6 +25,7 @@ class ApiServerConfig:
     api_log_path: str = "./data/logs/api/logs.txt"
     model_name_qa: str = "choosistant/qa-model"
     model_name_seq2seq: str = "choosistant/seq2seqmodel"
+    model_name_qa_st = "choosistant/qa-model-fine-tuned"
     batch_size: int = 8
     inference_device_code: str = os.environ.get("INFERENCE_DEVICE", "cpu")
     inference_device: torch.device = field(init=False)
@@ -82,9 +83,13 @@ def startup_event():
         f"Using inference device: {cnf.inference_device_name} ({cnf.inference_device})"
     )
 
-    PREDICTORS["qa"] = QuestionAnsweringPredictor(
-        qa_model_name=cnf.model_name_qa,
-        batch_size=cnf.batch_size,
+    # PREDICTORS["qa"] = QuestionAnsweringPredictor(
+    #     qa_model_name=cnf.model_name_qa,
+    #     batch_size=cnf.batch_size,
+    #     inference_device=cnf.inference_device_code,
+    # )
+    PREDICTORS["qa"] = QuestionAnsweringPredictorS(
+        qa_model_name=cnf.model_name_qa_st,
         inference_device=cnf.inference_device_code,
     )
     PREDICTORS["seq2seq"] = Seq2SeqPredictor(
