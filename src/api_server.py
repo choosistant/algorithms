@@ -11,7 +11,11 @@ from fastapi import FastAPI
 from loguru import logger
 from pydantic import BaseModel, validator
 
-from src.model_extractors import Predictor, QuestionAnsweringPredictor, QuestionAnsweringPredictorS, Seq2SeqPredictor
+from src.model_extractors import (
+    Predictor,
+    QuestionAnsweringPredictorS,
+    Seq2SeqPredictor,
+)
 
 PREDICTORS: Dict[str, Predictor] = {
     "qa": None,
@@ -90,7 +94,7 @@ def startup_event():
     # )
     PREDICTORS["qa"] = QuestionAnsweringPredictorS(
         qa_model_name=cnf.model_name_qa_st,
-        inference_device=cnf.inference_device_code,
+        # inference_device=cnf.inference_device_code,
     )
     PREDICTORS["seq2seq"] = Seq2SeqPredictor(
         model_name_seq2seq=cnf.model_name_seq2seq,

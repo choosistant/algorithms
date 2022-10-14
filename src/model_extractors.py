@@ -5,7 +5,7 @@ from typing import Dict, List, Protocol
 import torch
 from simpletransformers.seq2seq import Seq2SeqArgs, Seq2SeqModel
 from torch.utils.data import DataLoader
-from transformers import AutoModel, AutoModelForQuestionAnswering, AutoTokenizer, pipeline
+from transformers import AutoModel, pipeline
 
 from src.data import QuestionAnsweringInputEncoder, QuestionAnsweringModelInput
 from src.models.qa import QuestionAnsweringModel
@@ -127,40 +127,35 @@ class Seq2SeqPredictor:
             LabeledSegment(segment=pred, label="benefit", score=0.0) for pred in results
         ]
 
-    class QuestionAnsweringPredictorS:
-        def __init__(
-                self, qa_model_name: str
-        ) -> None:
-            # self._model = AutoModelForQuestionAnswering.from_pretrained(qa_model_name)
-            # self._tokenizer = AutoTokenizer.from_pretrained(qa_model_name)
-            self._nlp = pipeline('question-answering', model=qa_model_name, tokenizer=qa_model_name)
+
+class QuestionAnsweringPredictorS:
+    def __init__(self, qa_model_name: str) -> None:
+        self._nlp = pipeline(
+            "question-answering", model=qa_model_name, tokenizer=qa_model_name
+        )
 
     def predict(self, document: str) -> List[LabeledSegment]:
         benefits = []
         drawback = []
         text = document
         while len(document.split(" ")) > 2:
-            QA_input = {
-                'question': 'where are the benefits?',
-                'context': document
-            }
+            QA_input = {"question": "where are the benefits?", "context": document}
             res = self._nlp(QA_input)
             benefits.append(document[res.get("start"):res.get("end")])
-            document = document[res.get("end"):]
+            document = document[res.get("end") :]
 
         while len(text.split(" ")) > 2:
-            QA_input = {
-                'question': 'where are the drawbacks?',
-                'context': text
-            }
+            QA_input = {"question": "where are the drawbacks?", "context": text}
             res = self._nlp(QA_input)
             drawback.append(text[res.get("start"):res.get("end")])
-            text = text[res.get("end"):]
+            text = text[res.get("end") :]
 
         output_benefit = [
-            LabeledSegment(segment=pred, label="benefit", score=0.0) for pred in benefits
+            LabeledSegment(segment=pred, label="benefit", score=0.0)
+            for pred in benefits
         ]
         output_drawback = [
-            LabeledSegment(segment=pred, label="drawback", score=0.0) for pred in drawback
+            LabeledSegment(segment=pred, label="drawback", score=0.0)
+            for pred in drawback
         ]
         return output_drawback + output_benefit
