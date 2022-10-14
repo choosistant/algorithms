@@ -15,6 +15,8 @@ A repo for experimenting with different models.
 
    ```bash
    poetry install
+   poetry install --with torch-cpu # Install CPU only PyTorch.
+   poetry install --with torch-gpu # Install PyTorch for GPU servers.
    ```
 
 3. Install the pre-commit Git hooks:
@@ -34,11 +36,13 @@ poetry run python -m src.test_dummy
 Run API server for development purposes:
 
 ```bash
+export INFERENCE_DEVICE=cuda:0 # Change to `cpu`
 poetry run uvicorn src.api_server:app --reload
 ```
 
 Run API server in production:
 
 ```bash
+export INFERENCE_DEVICE=cuda:0 # Change to `cpu`
 poetry run gunicorn -w 4 -k uvicorn.workers.UvicornWorker --timeout 300 --bind 0.0.0.0:8000 src.api_server:app
 ```
