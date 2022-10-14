@@ -86,7 +86,7 @@ class QuestionAnsweringPostProcessor:
             if pred_answer_start == 0:
                 pred_answer_end = 0
             else:
-                pred_answer_end = max_index % scores.shape[1]
+                pred_answer_end = max_index % scores.shape[1] + 1
 
             # Find the prediction score.
             pred_score = scores[pred_answer_start, pred_answer_end].item()
