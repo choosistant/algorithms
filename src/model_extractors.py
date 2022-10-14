@@ -141,21 +141,21 @@ class QuestionAnsweringPredictorS:
         while len(document.split(" ")) > 2:
             QA_input = {"question": "where are the benefits?", "context": document}
             res = self._nlp(QA_input)
-            benefits.append(document[res.get("start"):res.get("end")])
+            benefits.append(document[res.get("start") : res.get("end")])
             document = document[res.get("end") :]
 
         while len(text.split(" ")) > 2:
             QA_input = {"question": "where are the drawbacks?", "context": text}
             res = self._nlp(QA_input)
-            drawback.append(text[res.get("start"):res.get("end")])
+            drawback.append(text[res.get("start") : res.get("end")])
             text = text[res.get("end") :]
 
         output_benefit = [
             LabeledSegment(segment=pred, label="benefit", score=0.0)
-            for pred in benefits
+            for pred in benefits[0:-1]
         ]
         output_drawback = [
             LabeledSegment(segment=pred, label="drawback", score=0.0)
-            for pred in drawback
+            for pred in drawback[0:-1]
         ]
         return output_drawback + output_benefit
