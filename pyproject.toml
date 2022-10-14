@@ -9,20 +9,36 @@ packages = [{include = "src"}]
 
 [tool.poetry.dependencies]
 python = "^3.8"
-numba = { version = "^0.56.2", source = "pypi" }
+numpy = { version = "1.23.3", source = "pypi" }
 nltk = { version = "^3.7", source = "pypi" }
-torch = { version = "^1.12.1", source = "torch" }
-torchvision = { version = "^0.13.1", source = "torch" }
 huggingface-hub = { version = "^0.10.0", source = "pypi" }
+fastapi = { version = "^0.85.0", source = "pypi" }
+pydantic = { version = "^1.10.2", source = "pypi" }
+gunicorn = { version = "^20.1.0", source = "pypi" }
+uvicorn = { version = "^0.18.3", source = "pypi" }
+loguru = { version = "^0.6.0", source = "pypi" }
+
+[tool.poetry.group.torch-cpu]
+optional = true # poetry install --with torch-cpu
+
+[tool.poetry.group.torch-cpu.dependencies]
+torch = { version = "^1.12.1", source = "pypi" }
+torchvision = { version = "^0.13.1", source = "pypi" }
 pytorch-lightning = { version = "^1.7.7", source = "pypi" }
 transformers = { version = "^4.22.1", source = "pypi" }
 evaluate = { version = "^0.2.2", source = "pypi" }
-fastapi = "^0.85.0"
-pydantic = "^1.10.2"
-gunicorn = "^20.1.0"
-uvicorn = "^0.18.3"
-loguru = "^0.6.0"
-simpletransformers = "^0.63.9"
+simpletransformers = { version = "^0.63.9", source = "pypi" }
+
+[tool.poetry.group.torch-gpu]
+optional = true # poetry install --with torch-gpu
+
+[tool.poetry.group.torch-gpu.dependencies]
+torch = { version = "^1.12.1", source = "torch" }
+torchvision = { version = "^0.13.1", source = "torch" }
+pytorch-lightning = { version = "^1.7.7", source = "pypi" }
+transformers = { version = "^4.22.1", source = "pypi" }
+evaluate = { version = "^0.2.2", source = "pypi" }
+simpletransformers = { version = "^0.63.9", source = "pypi" }
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.1.3"

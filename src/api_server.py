@@ -1,6 +1,7 @@
 import json
+import os
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
@@ -25,6 +26,20 @@ class ApiServerConfig:
     model_name_qa: str = "choosistant/qa-model"
     model_name_seq2seq: str = "choosistant/seq2seqmodel"
     batch_size: int = 8
+    inference_device_code: str = os.environ.get("INFERENCE_DEVICE", "cpu")
+    inference_device: torch.device = field(init=False)
+    inference_device_name: str = field(init=False)
+
+    def __post_init__(self):
+        self.inference_device = torch.device(self.inference_device_code)
+        if "cpu" in self.inference_device_code:
+            self.inference_device_name = "CPU"
+        elif "cuda" in self.inference_device_code:
+            self.inference_device_name = torch.cuda.get_device_name(
+                self.inference_device
+            )
+        else:
+            raise ValueError("Unknown inference device")
 
 
 class PredictRequest(BaseModel):
@@ -63,12 +78,18 @@ def startup_event():
 
     logger.add(cnf.api_log_path, rotation="1 day", retention="7 days")
     logger.info("Starting API server")
+    logger.info(
+        f"Using inference device: {cnf.inference_device_name} ({cnf.inference_device})"
+    )
 
     PREDICTORS["qa"] = QuestionAnsweringPredictor(
-        qa_model_name=cnf.model_name_qa, batch_size=cnf.batch_size, cuda_device_no=0
+        qa_model_name=cnf.model_name_qa,
+        batch_size=cnf.batch_size,
+        inference_device=cnf.inference_device_code,
     )
     PREDICTORS["seq2seq"] = Seq2SeqPredictor(
-        model_name_seq2seq=cnf.model_name_seq2seq, cuda_device_no=0
+        model_name_seq2seq=cnf.model_name_seq2seq,
+        inference_device=cnf.inference_device_code,
     )
 
     # Ensure parent directories exist.
@@ -108,7 +129,7 @@ def predict(request: PredictRequest):
         "request": request.dict(),
         "predictions": [o.to_dict() for o in predictions],
         "inference_time_ms": int(inference_time_ms),
-        "inference_device": torch.cuda.get_device_name(),
+        "inference_device": cnf.inference_device_name,
     }
     prediction_log_file.write(f"{json.dumps(log_info)}\n")
     prediction_log_file.flush()

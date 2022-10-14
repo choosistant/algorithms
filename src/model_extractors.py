@@ -22,14 +22,29 @@ class LabeledSegment:
         return self.__dict__
 
 
+class Predictor(Protocol):
+    """An interface for a model that can predict labels for segments of text."""
+
+    def predict(self, document: str) -> List[LabeledSegment]:
+        ...
+
+    @property
+    def inference_device(self) -> str:
+        ...
+
+
 class QuestionAnsweringPredictor:
     def __init__(
-        self, qa_model_name: str, batch_size: int, cuda_device_no: int
+        self, qa_model_name: str, batch_size: int, inference_device: str
     ) -> None:
         self._model = QuestionAnsweringModel(qa_model_name=qa_model_name)
         self._encoder = QuestionAnsweringInputEncoder(self._model.tokenizer)
         self._batch_size = batch_size
-        self._cuda_device_no = cuda_device_no
+        self._inference_device = inference_device
+
+    @property
+    def inference_device(self) -> str:
+        return self._inference_device
 
     def predict(self, document: str) -> List[LabeledSegment]:
         example_id = random.getrandbits(32)
@@ -49,7 +64,7 @@ class QuestionAnsweringPredictor:
         with time_block("Took {:0.2f} seconds make predictions"):
             results = self._model.predict_all(
                 data_loader=data_loader,
-                inference_device=torch.device(f"cuda:{self._cuda_device_no}"),
+                inference_device=torch.device(self._inference_device),
             )
 
         with time_block("Took {:0.2f} seconds to convert labels"):
@@ -81,10 +96,13 @@ class Seq2SeqPredictor:
     def __init__(
         self,
         model_name_seq2seq: str,
-        cuda_device_no: int,
+        inference_device: str,
         encoder_decoder_type: str = "bart",
         encoder_decoder_name: str = "facebook/bart-large",
     ) -> None:
+        use_cuda = inference_device.split(":")[0] == "cuda"
+        device_id = int(inference_device.split(":")[1]) if use_cuda else 0
+
         self._backbone_model = AutoModel.from_pretrained(model_name_seq2seq)
         model_args = Seq2SeqArgs()
         self._model = Seq2SeqModel(
@@ -92,9 +110,14 @@ class Seq2SeqPredictor:
             encoder_decoder_name=encoder_decoder_name,
             args=model_args,
             model=self._backbone_model,
-            use_cuda=True,
-            cuda_device=cuda_device_no,
+            use_cuda=use_cuda,
+            cuda_device=device_id,
         )
+        self._inference_device = inference_device
+
+    @property
+    def inference_device(self) -> str:
+        return self._inference_device
 
     def predict(self, document: str) -> List[LabeledSegment]:
         with time_block("Took {:0.2f} seconds make seq2seq predictions"):
@@ -103,10 +126,3 @@ class Seq2SeqPredictor:
         return [
             LabeledSegment(segment=pred, label="benefit", score=0.0) for pred in results
         ]
-
-
-class Predictor(Protocol):
-    """An interface for a model that can predict labels for segments of text."""
-
-    def predict(self, document: str) -> List[LabeledSegment]:
-        ...
