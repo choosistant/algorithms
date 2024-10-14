@@ -25,12 +25,10 @@ class LabeledSegment:
 class Predictor(Protocol):
     """An interface for a model that can predict labels for segments of text."""
 
-    def predict(self, document: str) -> List[LabeledSegment]:
-        ...
+    def predict(self, document: str) -> List[LabeledSegment]: ...
 
     @property
-    def inference_device(self) -> str:
-        ...
+    def inference_device(self) -> str: ...
 
 
 class QuestionAnsweringPredictor:
